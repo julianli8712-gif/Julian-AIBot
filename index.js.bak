@@ -37,73 +37,58 @@ async function initRedis() {
     }
 }
 
-// 微信 Access Token 管理（客服消息接口需要）
-// 注意：被动回复模式不需要 Access Token
-// 保留此函数以防将来需要
-let wechatAccessToken = null;
-let wechatTokenExpiry = 0;
+// 关键词触发配置（精准匹配，直接回复不走AI）
+const KEYWORD_REPLIES = {
+    '推荐酒店': '🏨 推荐你关注这几个标杆：\n\n1️⃣ 安缦（Aman）— 极致私密与宁静\n2️⃣ 文华东方 — 服务细腻，品味独到\n3️⃣ 瑰丽（Rosewood）— 现代奢华与本土文化融合\n\n想深入了解哪一家？😊',
+    '葡萄酒': '🍷 葡萄酒搭配小技巧：\n\n🔴 红肉 → 高单宁红酒（如波尔多、赤霞珠）\n⚪ 海鲜/禽类 → 白酒或淡红酒（如霞多丽、黑皮诺）\n🧀 奶酪 → 甜酒或加强酒（如苏玳、波特）\n\n想了解某个产区或品种吗？',
+    '收益管理': '📊 酒店收益管理三要素：\n\n1️⃣ 需求预测 — 历史数据 + 市场洞察\n2️⃣ 动态定价 — 根据预订节奏实时调价\n3️⃣ 房态控制 — 预留房源给高价渠道\n\n核心是：在对的时间，以对的价格，把对的房卖给对的客😊',
+    '美食': '🍜 Julian 最爱探索世界美食！\n\n近期关注：\n🇫🇷 法式 BLWP 配红酒\n🇮🇹 意大利白松露季\n🇯🇵 怀石料理的四季哲学\n🇨🇳 川菜的24味型\n\n有特别想聊的美食话题吗？',
+    '你好': '👋 你好！我是「Hotel & Tourism Insights」的AI助手 🤖\n\n🌟 我能帮你：酒店运营·旅游趋势·葡萄酒·美食旅行\n\n直接发消息，我会尽快回复你！😊'
+};
 
-// AI 人格设定 - 酒店与旅游业专家
-const SYSTEM_PROMPT = `你是「Hotel & Tourism Insights」的 AI 助手，一位酒店与旅游业专家 🏨
+// AI 人格设定 - Julian 的智能助手
+const SYSTEM_PROMPT = `你是「Hotel & Tourism Insights」的 AI 助手 🧑‍🎓
 
-## 核心身份
-- 你是 AI 助手，不是 Julian，也不是真人
-- 你的核心角色：酒店与旅游业专家，具备深厚的行业知识和研究背景
-- 你的知识来源于 Julian 的研究、行业权威报告及公开的专业资料
-- 引用时用"研究表明..."、"根据行业数据..."，提及 Julian 时用"Julian 的研究指出..."等自然表述；严格禁止使用"我认为..."（除非是通用的逻辑推断）
-- **不要在每条回复结尾都加"Julian 认为..."**，这会让对话显得生硬和重复；只有当你真正引用了 Julian 的具体观点时才提他
-
-## 关于 Julian（知识来源之一）
-- Julian 是「Hotel & Tourism Insights」创始人
-- 香港理工大学酒店与旅游管理学院博士在读
+## 你的身份
+- 酒店与旅游业专家，行业顾问
+- 香港理工大学旅游与酒店管理专业在读博士
 - 深耕酒店运营、收益管理、品牌策略多年
-- 热爱探索世界美食 🍜 和葡萄酒品鉴 🍷
+- 葡萄酒爱好者，略懂品鉴 🍷
+- 你的知识来源于 Julian 的研究与经验积累
 
-## ⚠️ 最重要的规则：真实与准确（优先于一切）
-1. **严禁幻觉**：如果不确定某个数据、价格、政策或事实，必须直接说明"这方面我没有确切信息"，严禁编造任何内容
-2. **引用来源**：涉及具体数据或研究结论时，说明来源（如"根据 STR 报告..."、"2023年文旅部数据显示..."）
-3. **承认局限**：如果你无法确认最新信息（如2024-2026年的最新数据），请坦诚告知用户，不要猜测
-4. **专业优先**：宁可说"这个问题需要更专业的资料来确认"，也不要给出模糊、错误或来源不明的内容
-5. **全网真实准确**：你的回答必须基于可验证的行业知识，确保真实性和准确性
+## 关于 Julian
+- Julian 是「Hotel & Tourism Insights」的创始人
+- 香港理工大学酒店与旅游管理学院博士在读
+- 热爱探索世界美食 🍜，品味独到
+- 你代表的正是 Julian 的专业视角与行业洞察
+
+## 你的风格
+- 温暖亲切，像朋友聊天一样自然 ☕
+- 简洁干练，不废话，直击重点
+- 专业但不装腔作势
+- 适度使用 emoji，让对话更有温度 😊
 
 ## 专业领域
 - 酒店选址、筹建、运营管理
-- 收益管理（RevPAR、ADR、Occupancy 等核心指标）
-- 品牌策略与市场营销
 - 旅游业趋势洞察与分析
+- 收益管理、市场营销策略
 - 葡萄酒搭配与品鉴 🍷
-- 美食与旅行推荐 🌍
-
-## 回答规范（必须遵守）
-1. **直接回答**：用户问什么，直接回答什么，不要反问或说套话
-2. **术语解释**：用户问专业术语（ADR、RevPAR、GOP 等），给出定义 + 公式 + 简短举例
-3. **推荐具体**：用户要推荐酒店/目的地，给出具体名称 + 核心理由，不要只说"可以参考..."
-4. **长度适中**：一般问题 100-200 字；复杂问题可以到 300 字。**严禁超过 550 字**（微信限制 600 字，保留缓冲）
-5. **语言匹配**：用户用中文回答中文，用户用英文回答英文
-6. **禁止生硬结尾**：不要以"Julian 认为..."或"Julian 建议..."作为回复结尾；除非你真正引用了 Julian 的具体研究，否则自然结束即可，不需要刻意提到 Julian
-
-## 沟通风格
-- 温暖亲切，但不失专业 🎓
-- 简洁干练，直击重点
-- 适度使用 emoji 😊，让对话有温度
-- 像一位经验丰富的行业顾问在耐心解答
-
-## 示例对话
-
-用户："什么是 ADR？"
-你："ADR（Average Daily Rate，平均每日房价）是衡量酒店定价绩效的核心指标。计算公式：ADR = 某时段客房总收入 ÷ 同期已售客房数。例如：某酒店单日售出 120 间房，客房收入 15 万元，则 ADR = 150000 ÷ 120 = 1250 元。ADR 与入住率共同决定 RevPAR，是收益管理的关键 KPI。"
-
-用户："北京有哪些适合商务接待的五星级酒店？"
-你："北京适合商务接待的五星级酒店推荐：\n1. 国贸大酒店 — 地处 CBD 核心，设施现代，适合高管会议\n2. 北京瑰丽酒店 — 设计感强，个性化服务出色\n3. 北京饭店 · 莱佛士 — 历史悠久，地理位置极佳（紧邻天安门）\n4. 中国大饭店 — 国贸商圈老牌五星，商务配套成熟\n需要我针对某个具体场景进一步推荐吗？ 😊"
+- 偶尔聊聊美食 🌟
 
 ## 语言规则
 - 用户用中文 → 用中文回复
 - 用户用英文 → 用英文回复
-- 混合使用时，以主要语言为准
 
-## 处理不确定问题
-- 如果你无法确认最新信息（如某酒店是否已停业、最新政策变化等），请说："这方面我无法确认最新情况，建议您查阅官方信息或直接联系酒店确认。"
-- 禁止用模糊的表述搪塞用户（如"建议您通过网络查询"这类废话）`;
+## 回复规范
+- 简洁有力，每次回复 100-200 字
+- 如需深入交流，引导关注公众号或私信详聊
+- 遇到不确定的问题，坦诚说明，不瞎编
+
+## 情感互动
+- 用户感谢 → 温暖回应
+- 用户困惑 → 耐心解释
+- 用户开心 → 一起开心 😊
+- 可以提及 Julian 的见解，但不说「Julian 让我...」这种话`;
 
 // 对话历史存储（Redis 或内存回退）
 const conversations = new Map();
@@ -138,15 +123,15 @@ async function callZhipuAI(userId, userMessage) {
             {
                 model: 'glm-4-flash',
                 messages: messages,
-                max_tokens: 350,  // 降低 token 限制（500 → 350），约 525 个中文字
-                temperature: 0.7
+                max_tokens: 500,
+                temperature: 0.8
             },
             {
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${ZHIPU_API_KEY}`
                 },
-                timeout: 25000  // 超时时间：30秒 → 25秒（避免与 Railway 30秒超时冲突）
+                timeout: 4500
             }
         );
         
@@ -265,13 +250,13 @@ function buildReplyXml(toUser, fromUser, content) {
 // 关注欢迎语
 const WELCOME_MESSAGE = `👋 欢迎关注「Hotel & Tourism Insights」！
 
-我是 AI 助手 🤖，酒店与旅游业专家 🏨
+我是 Julian 的 AI 助手 🤖，香港理工大学旅游与酒店管理专业在读博士，酒店与旅游业专家 🏨
 
 🌟 我能帮你：
 - 酒店运营、收益管理、品牌策略咨询
 - 旅游业趋势分析与洞察
 - 葡萄酒搭配与品鉴建议 🍷
-- 美食旅行推荐 🌍
+- 美食旅行推荐 🌏
 
 💬 直接发消息，我会尽快回复你！
 Julian 热爱探索世界美食，希望通过这个平台与大家交流分享 😊`;
@@ -307,16 +292,10 @@ app.get('/wechat', (req, res) => {
     }
 });
 
-// 接收微信消息（POST 请求）- 被动回复模式（5秒内必须响应）
+// 接收微信消息（POST 请求）
 app.post('/wechat', async (req, res) => {
-    // 设置整体超时（4.5秒，留0.5秒缓冲）
-    let timeoutReached = false;
-    const timeout = setTimeout(() => {
-        timeoutReached = true;
-    }, 4500);
-    
     try {
-        // 读取请求体
+        // 读取原始数据
         let body = '';
         req.on('data', chunk => {
             body += chunk;
@@ -329,84 +308,81 @@ app.post('/wechat', async (req, res) => {
         
         // 解析消息
         const msg = parseWeChatXML(body);
-        const { MsgType, Event, FromUserName, ToUserName, Content, Recognition } = msg;
         
-        let replyContent = '';
+        const { MsgType, Event, FromUserName, ToUserName } = msg;
         
         // 1. 处理关注事件
         if (MsgType === 'event' && Event === 'subscribe') {
-            replyContent = WELCOME_MESSAGE;
+            const reply = buildReplyXml(FromUserName, ToUserName, WELCOME_MESSAGE);
+            res.send(reply);
+            return;
         }
-        // 2. 处理语音消息
-        else if (MsgType === 'voice') {
-            let textContent = Recognition || Content || '';
-            
-            if (!textContent || textContent.trim() === '') {
-                replyContent = NON_TEXT_REPLY;
-            } else {
-                // 限流检查
-                if (!checkRateLimit(FromUserName)) {
-                    replyContent = '⚠️ 消息发送太快啦～请稍等片刻再提问哦 😊';
-                } else {
-                    // 调用 AI（带超时保护）
-                    replyContent = await Promise.race([
-                        callZhipuAI(FromUserName, textContent.trim()),
-                        new Promise((resolve) => 
-                            setTimeout(() => resolve('⏱️ AI 回复超时，请稍后再试～'), 4000)
-                        )
-                    ]);
-                }
+        
+        // 2. 处理语音消息（微信已自动识别成文字）
+        if (MsgType === 'voice') {
+            const voiceText = msg.Recognition || msg.Content || '';
+            if (voiceText && voiceText.trim()) {
+                // 调用 AI 获取回复
+                const aiReply = await callZhipuAI(FromUserName, voiceText);
+                const reply = buildReplyXml(FromUserName, ToUserName, aiReply);
+                res.send(reply);
+                return;
             }
         }
-        // 3. 处理文本消息
-        else if (MsgType === 'text') {
-            let textContent = Content || '';
-            
-            if (!textContent || textContent.trim() === '') {
-                replyContent = '👋 你好！有什么酒店旅游方面的问题想问我吗？';
-            } else {
-                // 限流检查
-                if (!checkRateLimit(FromUserName)) {
-                    replyContent = '⚠️ 消息发送太快啦～请稍等片刻再提问哦 😊';
-                } else {
-                    // 调用 AI（带超时保护）
-                    replyContent = await Promise.race([
-                        callZhipuAI(FromUserName, textContent.trim()),
-                        new Promise((resolve) => 
-                            setTimeout(() => resolve('⏱️ AI 回复超时，请稍后再试～'), 4000)
-                        )
-                    ]);
-                }
+        
+        // 3. 只处理文本消息
+        if (MsgType !== 'text') {
+            const reply = buildReplyXml(FromUserName, ToUserName, NON_TEXT_REPLY);
+            res.send(reply);
+            return;
+        }
+        
+        const { Content } = msg;
+        
+        // 忽略空消息
+        if (!Content || Content.trim() === '') {
+            const reply = buildReplyXml(
+                FromUserName, 
+                ToUserName, 
+                '👋 你好！有什么酒店旅游方面的问题想问我吗？'
+            );
+            res.send(reply);
+            return;
+        }
+        
+        // 限流检查
+        if (!checkRateLimit(FromUserName)) {
+            const reply = buildReplyXml(
+                FromUserName, 
+                ToUserName, 
+                '⚠️ 消息发送太快啦～请稍等片刻再提问哦 😊'
+            );
+            res.send(reply);
+            return;
+        }
+        
+        // 4. 关键词触发（精准匹配，直接回复，不走AI）
+        const trimmedContent = Content.trim();
+        for (const [keyword, replyText] of Object.entries(KEYWORD_REPLIES)) {
+            if (trimmedContent.includes(keyword)) {
+                const reply = buildReplyXml(FromUserName, ToUserName, replyText);
+                res.send(reply);
+                console.log(`关键词触发：「${keyword}」→ 直接回复（不走AI）`);
+                return;
             }
         }
-        // 4. 其他类型消息
-        else {
-            replyContent = NON_TEXT_REPLY;
-        }
         
-        clearTimeout(timeout);
+        // 5. 没有匹配关键词，调用 AI 获取回复
+        const aiReply = await callZhipuAI(FromUserName, trimmedContent);
         
-        // 构建并返回 XML 回复（被动回复，必须在5秒内）
-        const xmlReply = buildReplyXml(FromUserName, ToUserName, replyContent);
-        res.set('Content-Type', 'application/xml');
-        res.send(xmlReply);
-        
-        console.log(`✅ 被动回复成功: ${replyContent.substring(0, 50)}...`);
+        // 返回回复
+        const reply = buildReplyXml(FromUserName, ToUserName, aiReply);
+        res.send(reply);
         
     } catch (error) {
-        clearTimeout(timeout);
         console.error('处理消息失败:', error);
-        
-        // 如果超时，返回错误提示
-        if (!res.headersSent) {
-            const errorReply = buildReplyXml(
-                msg.FromUserName,
-                msg.ToUserName,
-                '🤔 遇到了一点小问题，请稍后再试。'
-            );
-            res.set('Content-Type', 'application/xml');
-            res.send(errorReply);
-        }
+        // 必须5秒内响应微信服务器
+        res.send('success');
     }
 });
 
@@ -423,54 +399,33 @@ app.get('/health', (req, res) => {
 
 // 测试接口 - 直接测试 AI 回复（不需要微信公众号）
 app.post('/test', express.json(), async (req, res) => {
-    // 设置请求超时（25秒，留5秒给 Railway）
-    const requestTimeout = setTimeout(() => {
-        if (!res.headersSent) {
-            console.error('⏱️  请求超时（25秒）');
-            res.status(504).json({
-                success: false,
-                error: '请求超时，请稍后重试'
-            });
-        }
-    }, 25000);
-    
     try {
         const { message, userId } = req.body;
         
         if (!message) {
-            clearTimeout(requestTimeout);
             return res.status(400).json({ error: '缺少 message 参数' });
         }
         
         const testUserId = userId || 'test-user-123';
         console.log(`🧪 测试请求: ${message}`);
         
-        // 调用 AI 获取回复
         const reply = await callZhipuAI(testUserId, message);
-        
-        clearTimeout(requestTimeout);
         
         res.json({
             success: true,
             userMessage: message,
             aiReply: reply,
-            userId: testUserId,
-            triggeredBy: 'ai'
+            userId: testUserId
         });
         
         console.log(`✅ AI 回复: ${reply.substring(0, 100)}...`);
         
     } catch (error) {
-        clearTimeout(requestTimeout);
         console.error('测试失败:', error);
-        
-        // 确保总是返回响应，防止应用崩溃
-        if (!res.headersSent) {
-            res.status(500).json({
-                success: false,
-                error: error.message || '服务内部错误'
-            });
-        }
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
     }
 });
 
@@ -506,7 +461,6 @@ app.listen(PORT, async () => {
     console.log(`🌐 监听端口: ${PORT}`);
     console.log(`🤖 使用模型: 智谱 GLM-4-Flash`);
     console.log(`💚 健康检查: http://localhost:${PORT}/health`);
-    console.log(`📝 模式: 被动回复（无需认证）`);
     
     if (!ZHIPU_API_KEY) {
         console.warn('⚠️  警告: ZHIPU_API_KEY 未设置！');
@@ -515,6 +469,6 @@ app.listen(PORT, async () => {
         console.warn('⚠️  警告: WECHAT_TOKEN 未设置！');
     }
     
-    // 初始化 Redis 连接（可选）
+    // 初始化 Redis 连接
     await initRedis();
 });
