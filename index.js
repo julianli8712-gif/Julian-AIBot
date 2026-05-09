@@ -156,7 +156,7 @@ function buildReplyXml(toUser, fromUser, content) {
 </xml>`;
 }
 
-// 调用智谱 AI（无对话历史，极简版）
+// 调用智谱 AI（同步模式优化版 - 极速响应）
 async function callZhipuAI(userMessage) {
     const startTime = Date.now();
     
@@ -178,42 +178,42 @@ async function callZhipuAI(userMessage) {
                     { role: 'system', content: SYSTEM_PROMPT },
                     { role: 'user', content: userMessage }
                 ],
-                max_tokens: 100,  // 降低 token 限制，加快响应（优化方案C）
-                temperature: 0.5  // 降低温度，更确定性回复
+                max_tokens: 80,  // 进一步降低 token（同步模式需更快响应）
+                temperature: 0.3  // 更确定性，减少生成时间
             },
             {
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${ZHIPU_API_KEY}`
                 },
-                timeout: 8000  // 8秒超时（给AI更多时间响应，成功后缓存）
+                timeout: 4000  // 4秒超时（同步模式必须在5秒内完成）
             }
         );
         
         const aiReply = response.data.choices[0].message.content;
-        console.log(`✅ AI 回复成功 (耗时: ${Date.now() - startTime}ms)`);
+        const elapsed = Date.now() - startTime;
+        console.log(`✅ AI 回复成功 (耗时: ${elapsed}ms)`);
         
         // 存入缓存（LRU策略：超过上限时删除最早的一条）
         if (aiCache.size >= MAX_CACHE_SIZE) {
             const firstKey = aiCache.keys().next().value;
             aiCache.delete(firstKey);
-            console.log('🗑️  缓存已满，删除最早记录');
         }
         aiCache.set(cacheKey, aiReply);
-        console.log(`💾 已缓存回复 (缓存大小: ${aiCache.size})`);
         
         return aiReply;
         
     } catch (error) {
-        const endTime = Date.now();
-        console.error(`❌ AI 错误 (耗时: ${endTime - startTime}ms):`, error.response?.data || error.message);
+        const elapsed = Date.now() - startTime;
+        console.error(`❌ AI 错误 (耗时: ${elapsed}ms):`, error.code || error.message);
         
-        // 降级处理
+        // 超时时返回兜底回复（避免用户无响应）
         if (error.code === 'ECONNABORTED') {
-            return '⏱️ 回复有点慢，请稍后再试～';
+            console.log('⏱️ AI 超时，返回兜底回复');
+            return '👌 收到！我正在思考中，稍后给你详细回复～\n\n你可以先看看公众号菜单里的精选内容 📖';
         }
         
-        return '🤔 遇到了一点小问题，请稍后再试。';
+        return '🤔 这个问题有点难，我需要再想想～\n\n你可以试试问我：\n• 什么是ADR？\n• 如何做好收益管理？';
     }
 }
 
@@ -239,100 +239,98 @@ app.get('/wechat', (req, res) => {
     }
 });
 
-// 接收微信消息（POST 请求）- 极简版
-// 接收微信消息（POST 请求）- 异步回复模式（彻底解决超时问题）
+// 接收微信消息（POST 请求）- 同步模式（兼容无客服权限的公众号）
 app.post('/wechat', async (req, res) => {
+    const startTime = Date.now();
+    let body = '';
+    let msg = {};
+    
     try {
         // Step 1: 读取请求体
-        let body = '';
-        req.on('data', chunk => { body += chunk; });
-        await new Promise((resolve, reject) => {
-            req.on('end', resolve);
+        body = await new Promise((resolve, reject) => {
+            req.on('data', chunk => { body += chunk; });
+            req.on('end', () => resolve(body));
             req.on('error', reject);
         });
         
-        // Step 2: 立即返回空字符串（0.1秒内，微信不会报错）
-        res.send('');
-        console.log('✅ 立即返回空字符串（异步处理中...）');
+        // Step 2: 解析 XML 消息
+        msg = parseWeChatXML(body);
+        const { MsgType, Event, FromUserName, ToUserName, Content, Recognition } = msg;
         
-        // Step 3: 后台处理消息（不阻塞响应）
-        setImmediate(async () => {
-            try {
-                // 解析消息
-                const msg = parseWeChatXML(body);
-                const { MsgType, Event, FromUserName, ToUserName, Content, Recognition } = msg;
-                
-                let replyContent = '';
-                
-                // 1. 处理关注事件
-                if (MsgType === 'event' && Event === 'subscribe') {
-                    replyContent = WELCOME_MESSAGE;
+        let replyContent = '';
+        const defaultReply = '👋 你好！有什么可以帮你的吗？';
+        
+        // Step 3: 根据消息类型处理
+        if (MsgType === 'event' && Event === 'subscribe') {
+            // 关注事件
+            replyContent = WELCOME_MESSAGE;
+        }
+        else if (MsgType === 'voice') {
+            // 语音消息（转文字）
+            const textContent = Recognition || Content || '';
+            if (!textContent || textContent.trim() === '') {
+                replyContent = NON_TEXT_REPLY;
+            } else {
+                const faqAnswer = matchFAQ(textContent);
+                if (faqAnswer) {
+                    replyContent = faqAnswer;
+                    console.log(`📚 使用预定义回答 (语音)`);
+                } else {
+                    // AI 调用（4秒超时）
+                    console.log(`📤 AI 处理语音: ${textContent.substring(0, 30)}...`);
+                    replyContent = await callZhipuAI(textContent.trim());
                 }
-                // 2. 处理语音消息（转文字）
-                else if (MsgType === 'voice') {
-                    const textContent = Recognition || Content || '';
-                    
-                    if (!textContent || textContent.trim() === '') {
-                        replyContent = NON_TEXT_REPLY;
-                    } else {
-                        // 先检查预定义问答
-                        const faqAnswer = matchFAQ(textContent);
-                        
-                        if (faqAnswer) {
-                            replyContent = faqAnswer;
-                            console.log(`📚 使用预定义回答 (语音消息)`);
-                        } else {
-                            // 调用 AI
-                            replyContent = await callZhipuAI(textContent.trim());
-                        }
-                    }
-                }
-                // 3. 处理文本消息
-                else if (MsgType === 'text') {
-                    const textContent = Content || '';
-                    
-                    if (!textContent || textContent.trim() === '') {
-                        replyContent = '👋 你好！有什么可以帮你的吗？';
-                    } else {
-                        // 先检查预定义问答
-                        const faqAnswer = matchFAQ(textContent);
-                        
-                        if (faqAnswer) {
-                            replyContent = faqAnswer;
-                            console.log(`📚 使用预定义回答 (user: ${FromUserName})`);
-                        } else {
-                            // 调用 AI
-                            console.log(`📤 开始调用 AI... (user: ${FromUserName})`);
-                            replyContent = await callZhipuAI(textContent.trim());
-                            console.log(`✅ AI 回复完成`);
-                        }
-                    }
-                }
-                // 4. 其他类型消息
-                else {
-                    replyContent = NON_TEXT_REPLY;
-                }
-                
-                // Step 4: 通过客服接口发送回复
-                if (replyContent) {
-                    const success = await sendCustomerServiceMessage(FromUserName, replyContent);
-                    if (success) {
-                        console.log(`✅ 客服消息发送成功: ${replyContent.substring(0, 50)}...`);
-                    } else {
-                        console.error('❌ 客服消息发送失败');
-                    }
-                }
-                
-            } catch (error) {
-                console.error('后台处理消息失败:', error);
             }
-        });
+        }
+        else if (MsgType === 'text') {
+            // 文本消息
+            const textContent = Content || '';
+            if (!textContent || textContent.trim() === '') {
+                replyContent = defaultReply;
+            } else {
+                const faqAnswer = matchFAQ(textContent);
+                if (faqAnswer) {
+                    replyContent = faqAnswer;
+                    console.log(`📚 使用预定义回答 (user: ${FromUserName})`);
+                } else {
+                    // AI 调用（4秒超时）
+                    console.log(`📤 AI 处理: ${textContent.substring(0, 30)}... (user: ${FromUserName})`);
+                    replyContent = await callZhipuAI(textContent.trim());
+                }
+            }
+        }
+        else {
+            // 其他类型（图片、视频等）
+            replyContent = NON_TEXT_REPLY;
+        }
+        
+        // Step 4: 构建 XML 回复
+        if (!replyContent) {
+            replyContent = defaultReply;
+        }
+        
+        const xmlReply = buildReplyXml(FromUserName, ToUserName, replyContent);
+        
+        // Step 5: 返回回复（必须在 5 秒内）
+        res.set('Content-Type', 'application/xml');
+        res.send(xmlReply);
+        
+        const totalTime = Date.now() - startTime;
+        console.log(`✅ 回复成功 (总耗时: ${totalTime}ms)\n`);
         
     } catch (error) {
-        console.error('处理请求失败:', error);
-        // 确保总是返回空字符串（微信不会报错）
+        const totalTime = Date.now() - startTime;
+        console.error(`❌ 处理失败 (耗时: ${totalTime}ms):`, error.message);
+        
+        // 出错时也返回回复（避免微信报超时错误）
         if (!res.headersSent) {
-            res.send('');
+            const errorReply = buildReplyXml(
+                msg.FromUserName || '',
+                msg.ToUserName || '',
+                '🤔 我好像卡住了，稍后再试～'
+            );
+            res.set('Content-Type', 'application/xml');
+            res.send(errorReply);
         }
     }
 });
