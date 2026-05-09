@@ -1,6 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const axios = require('axios');
+const { matchFAQ } = require('./faq');
 require('dotenv').config();
 
 const app = express();
@@ -165,13 +166,22 @@ app.post('/wechat', async (req, res) => {
             if (!textContent || textContent.trim() === '') {
                 replyContent = '👌 收到语音消息！请直接文字描述你的问题～';
             } else {
-                // 调用 AI（带超时保护）
-                replyContent = await Promise.race([
-                    callZhipuAI(textContent.trim()),
-                    new Promise((resolve) => 
-                        setTimeout(() => resolve('⏱️ 回复有点慢，请稍后再试～'), AI_TIMEOUT)
-                    )
-                ]);
+                // 🆕 先检查预定义问答
+                const faqAnswer = matchFAQ(textContent);
+                
+                if (faqAnswer) {
+                    // 匹配到预定义问答，直接返回（无需调用 AI）
+                    replyContent = faqAnswer;
+                    console.log(`📚 使用预定义回答 (语音消息)`);
+                } else {
+                    // 没有匹配，调用 AI（带超时保护）
+                    replyContent = await Promise.race([
+                        callZhipuAI(textContent.trim()),
+                        new Promise((resolve) => 
+                            setTimeout(() => resolve('⏱️ 回复有点慢，请稍后再试～'), AI_TIMEOUT)
+                        )
+                    ]);
+                }
             }
         }
         // 3. 处理文本消息
@@ -181,17 +191,26 @@ app.post('/wechat', async (req, res) => {
             if (!textContent || textContent.trim() === '') {
                 replyContent = '👋 你好！有什么可以帮你的吗？';
             } else {
-                // 调用 AI（带超时保护）
-                console.log(`📤 开始调用 AI... (user: ${FromUserName})`);
+                // 🆕 先检查预定义问答
+                const faqAnswer = matchFAQ(textContent);
                 
-                replyContent = await Promise.race([
-                    callZhipuAI(textContent.trim()),
-                    new Promise((resolve) => 
-                        setTimeout(() => resolve('⏱️ 回复有点慢，请稍后再试～'), AI_TIMEOUT)
-                    )
-                ]);
-                
-                console.log(`✅ AI 回复完成`);
+                if (faqAnswer) {
+                    // 匹配到预定义问答，直接返回（无需调用 AI）
+                    replyContent = faqAnswer;
+                    console.log(`📚 使用预定义回答 (user: ${FromUserName})`);
+                } else {
+                    // 没有匹配，调用 AI（带超时保护）
+                    console.log(`📤 开始调用 AI... (user: ${FromUserName})`);
+                    
+                    replyContent = await Promise.race([
+                        callZhipuAI(textContent.trim()),
+                        new Promise((resolve) => 
+                            setTimeout(() => resolve('⏱️ 回复有点慢，请稍后再试～'), AI_TIMEOUT)
+                        )
+                    ]);
+                    
+                    console.log(`✅ AI 回复完成`);
+                }
             }
         }
         // 4. 其他类型消息
