@@ -195,6 +195,28 @@ function buildReplyXml(toUser, fromUser, content) {
 </xml>`;
 }
 
+// 关注欢迎语
+const WELCOME_MESSAGE = `👋 欢迎关注「Hotel & Tourism Insights」！
+
+我是 Julian 的 AI 助手 🤖，香港理工大学旅游与酒店管理专业在读博士，酒店与旅游业专家 🏨
+
+🌟 我能帮你：
+- 酒店运营、收益管理、品牌策略咨询
+- 旅游业趋势分析与洞察
+- 葡萄酒搭配与品鉴建议 🍷
+- 美食旅行推荐 🌏
+
+💬 直接发消息，我会尽快回复你！
+Julian 热爱探索世界美食，希望通过这个平台与大家交流分享 😊`;
+
+// 非文本消息提示
+const NON_TEXT_REPLY = `👌 收到你的消息！
+
+目前我更擅长处理文字咨询哦 📝
+请直接用文字描述你的问题，我会尽力帮你解答 😊
+
+如果是图片/语音消息，麻烦转成文字发给我～`;
+
 // 微信服务器验证（GET 请求）
 app.get('/wechat', (req, res) => {
     const { signature, timestamp, nonce, echostr } = req.query;
@@ -235,13 +257,35 @@ app.post('/wechat', async (req, res) => {
         // 解析消息
         const msg = parseWeChatXML(body);
         
-        // 只处理文本消息
-        if (msg.MsgType !== 'text') {
-            res.send('success');
+        const { MsgType, Event, FromUserName, ToUserName } = msg;
+        
+        // 1. 处理关注事件
+        if (MsgType === 'event' && Event === 'subscribe') {
+            const reply = buildReplyXml(FromUserName, ToUserName, WELCOME_MESSAGE);
+            res.send(reply);
             return;
         }
         
-        const { Content, FromUserName, ToUserName } = msg;
+        // 2. 处理语音消息（微信已自动识别成文字）
+        if (MsgType === 'voice') {
+            const voiceText = msg.Recognition || msg.Content || '';
+            if (voiceText && voiceText.trim()) {
+                // 调用 AI 获取回复
+                const aiReply = await callZhipuAI(FromUserName, voiceText);
+                const reply = buildReplyXml(FromUserName, ToUserName, aiReply);
+                res.send(reply);
+                return;
+            }
+        }
+        
+        // 3. 只处理文本消息
+        if (MsgType !== 'text') {
+            const reply = buildReplyXml(FromUserName, ToUserName, NON_TEXT_REPLY);
+            res.send(reply);
+            return;
+        }
+        
+        const { Content } = msg;
         
         // 忽略空消息
         if (!Content || Content.trim() === '') {
