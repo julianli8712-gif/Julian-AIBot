@@ -131,7 +131,7 @@ async function callZhipuAI(userId, userMessage) {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${ZHIPU_API_KEY}`
                 },
-                timeout: 4500
+                timeout: 15000
             }
         );
         
