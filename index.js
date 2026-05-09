@@ -132,7 +132,7 @@ async function callZhipuAI(userId, userMessage) {
             {
                 model: 'glm-4-flash',
                 messages: messages,
-                max_tokens: 500,
+                max_tokens: 350,  // 降低 token 限制（500 → 350），约 525 个中文字
                 temperature: 0.7
             },
             {
