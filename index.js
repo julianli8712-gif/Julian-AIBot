@@ -382,33 +382,33 @@ app.get('/wechat', (req, res) => {
     }
 });
 
-// 接收微信消息（POST 请求）- 异步处理版本
+// 接收微信消息（POST 请求）- 异步处理版本（修复版）
 app.post('/wechat', async (req, res) => {
+    // 先读取请求体（必须在发送响应之前完成）
+    let body = '';
+    req.on('data', chunk => {
+        body += chunk;
+    });
+    
+    await new Promise((resolve, reject) => {
+        req.on('end', resolve);
+        req.on('error', reject);
+    });
+    
     // 立即发送响应（5秒内），避免微信超时
     res.status(200).send('success');
     
     // 后台处理消息（不阻塞响应）
-    processWechatMessage(req).catch(error => {
+    processWechatMessage(body).catch(error => {
         console.error('后台处理消息失败:', error);
     });
 });
 
-// 后台处理微信消息
-async function processWechatMessage(req) {
+// 后台处理微信消息（接收已读取的 rawBody）
+async function processWechatMessage(rawBody) {
     try {
-        // 读取原始数据
-        let body = '';
-        req.on('data', chunk => {
-            body += chunk;
-        });
-        
-        await new Promise((resolve, reject) => {
-            req.on('end', resolve);
-            req.on('error', reject);
-        });
-        
         // 解析消息
-        const msg = parseWeChatXML(body);
+        const msg = parseWeChatXML(rawBody);
         const { MsgType, Event, FromUserName, ToUserName, Content, Recognition } = msg;
         
         // 1. 处理关注事件
