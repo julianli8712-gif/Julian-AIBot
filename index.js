@@ -7,6 +7,9 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// 限流存储
+const rateLimit = new Map();
+
 // 智谱 AI 配置（OpenAI 兼容）
 const ZHIPU_BASE_URL = process.env.ZHIPU_BASE_URL || 'https://open.bigmodel.cn/api/paas/v4/';
 const ZHIPU_API_KEY = process.env.ZHIPU_API_KEY;
@@ -389,8 +392,67 @@ app.get('/health', (req, res) => {
         status: 'ok',
         service: 'Hotel & Tourism Insights AI Bot',
         model: 'glm-4-flash',
+        redis: useRedis ? 'connected' : 'memory_only',
         timestamp: new Date().toISOString()
     });
+});
+
+// 测试接口 - 直接测试 AI 回复（不需要微信公众号）
+app.post('/test', express.json(), async (req, res) => {
+    try {
+        const { message, userId } = req.body;
+        
+        if (!message) {
+            return res.status(400).json({ error: '缺少 message 参数' });
+        }
+        
+        const testUserId = userId || 'test-user-123';
+        console.log(`🧪 测试请求: ${message}`);
+        
+        const reply = await callZhipuAI(testUserId, message);
+        
+        res.json({
+            success: true,
+            userMessage: message,
+            aiReply: reply,
+            userId: testUserId
+        });
+        
+        console.log(`✅ AI 回复: ${reply.substring(0, 100)}...`);
+        
+    } catch (error) {
+        console.error('测试失败:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// 清空对话历史（测试用）
+app.post('/test/clear', express.json(), async (req, res) => {
+    try {
+        const { userId } = req.body;
+        const testUserId = userId || 'test-user-123';
+        
+        // 清空 Redis 或内存中的对话历史
+        if (useRedis && redisClient) {
+            await redisClient.del(`conv:${testUserId}`);
+        } else {
+            conversations.delete(testUserId);
+        }
+        
+        res.json({
+            success: true,
+            message: `已清空用户 ${testUserId} 的对话历史`
+        });
+        
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
 });
 
 // 启动服务
