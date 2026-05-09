@@ -288,19 +288,33 @@ app.get('/wechat', (req, res) => {
 
 // 接收微信消息（POST 请求）- 被动回复模式（5秒内必须响应）
 app.post('/wechat', async (req, res) => {
-    // 设置整体超时（4.5秒，留0.5秒缓冲）
-    let timeoutReached = false;
-    const timeout = setTimeout(() => {
-        timeoutReached = true;
-    }, 4500);
+    // 必须在 5 秒内响应微信服务器
+    const TIMEOUT_MS = 4500;  // 4.5秒超时，留0.5秒缓冲
+    
+    let body = '';
+    req.on('data', chunk => {
+        body += chunk;
+    });
     
     try {
-        // 读取请求体
-        let body = '';
-        req.on('data', chunk => {
-            body += chunk;
+        // 设置整体超时（4.5秒）
+        const timeoutPromise = new Promise((resolve) => {
+            setTimeout(() => {
+                if (!res.headersSent) {
+                    // 超时了，返回默认回复
+                    const xmlReply = buildReplyXml(
+                        parseWeChatXML(body).FromUserName || 'unknown',
+                        parseWeChatXML(body).ToUserName || 'unknown',
+                        '⏱️ 回复有点慢，请稍后再试～'
+                    );
+                    res.set('Content-Type', 'application/xml');
+                    res.send(xmlReply);
+                    console.log('⚠️  整体超时（4.5秒），已返回默认回复');
+                }
+            }, TIMEOUT_MS);
         });
         
+        // 等待请求体接收完成
         await new Promise((resolve, reject) => {
             req.on('end', resolve);
             req.on('error', reject);
@@ -327,11 +341,11 @@ app.post('/wechat', async (req, res) => {
                 if (!checkRateLimit(FromUserName)) {
                     replyContent = '⚠️ 消息发送太快啦～请稍等片刻再提问哦 😊';
                 } else {
-                    // 调用 AI（带超时保护）
+                    // 调用 AI（带超时保护：3.5秒）
                     replyContent = await Promise.race([
                         callZhipuAI(FromUserName, textContent.trim()),
                         new Promise((resolve) => 
-                            setTimeout(() => resolve('⏱️ AI 回复超时，请稍后再试～'), 4000)
+                            setTimeout(() => resolve('⏱️ AI 回复超时，请稍后再试～'), 3500)
                         )
                     ]);
                 }
@@ -348,13 +362,18 @@ app.post('/wechat', async (req, res) => {
                 if (!checkRateLimit(FromUserName)) {
                     replyContent = '⚠️ 消息发送太快啦～请稍等片刻再提问哦 😊';
                 } else {
-                    // 调用 AI（带超时保护）
+                    // 调用 AI（带超时保护：3.5秒）
+                    console.log(`📤 开始调用 AI... (userId: ${FromUserName})`);
+                    const aiStartTime = Date.now();
+                    
                     replyContent = await Promise.race([
                         callZhipuAI(FromUserName, textContent.trim()),
                         new Promise((resolve) => 
-                            setTimeout(() => resolve('⏱️ AI 回复超时，请稍后再试～'), 4000)
+                            setTimeout(() => resolve('⏱️ AI 回复超时，请稍后再试～'), 3500)
                         )
                     ]);
+                    
+                    console.log(`✅ AI 回复完成 (耗时: ${Date.now() - aiStartTime}ms)`);
                 }
             }
         }
@@ -363,9 +382,7 @@ app.post('/wechat', async (req, res) => {
             replyContent = NON_TEXT_REPLY;
         }
         
-        clearTimeout(timeout);
-        
-        // 构建并返回 XML 回复（被动回复，必须在5秒内）
+        // 构建并返回 XML 回复
         const xmlReply = buildReplyXml(FromUserName, ToUserName, replyContent);
         res.set('Content-Type', 'application/xml');
         res.send(xmlReply);
@@ -373,18 +390,22 @@ app.post('/wechat', async (req, res) => {
         console.log(`✅ 被动回复成功: ${replyContent.substring(0, 50)}...`);
         
     } catch (error) {
-        clearTimeout(timeout);
         console.error('处理消息失败:', error);
         
-        // 如果超时，返回错误提示
+        // 如果还没响应，返回错误提示
         if (!res.headersSent) {
-            const errorReply = buildReplyXml(
-                msg.FromUserName,
-                msg.ToUserName,
-                '🤔 遇到了一点小问题，请稍后再试。'
-            );
-            res.set('Content-Type', 'application/xml');
-            res.send(errorReply);
+            try {
+                const msg = parseWeChatXML(body);
+                const errorReply = buildReplyXml(
+                    msg.FromUserName || 'unknown',
+                    msg.ToUserName || 'unknown',
+                    '🤔 遇到了一点小问题，请稍后再试。'
+                );
+                res.set('Content-Type', 'application/xml');
+                res.send(errorReply);
+            } catch (e) {
+                console.error('返回错误回复失败:', e);
+            }
         }
     }
 });
