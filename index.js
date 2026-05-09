@@ -37,15 +37,6 @@ async function initRedis() {
     }
 }
 
-// 关键词触发配置（精准匹配，直接回复不走AI）
-const KEYWORD_REPLIES = {
-    '推荐酒店': '🏨 推荐你关注这几个标杆：\n\n1️⃣ 安缦（Aman）— 极致私密与宁静\n2️⃣ 文华东方 — 服务细腻，品味独到\n3️⃣ 瑰丽（Rosewood）— 现代奢华与本土文化融合\n\n想深入了解哪一家？😊',
-    '葡萄酒': '🍷 葡萄酒搭配小技巧：\n\n🔴 红肉 → 高单宁红酒（如波尔多、赤霞珠）\n⚪ 海鲜/禽类 → 白酒或淡红酒（如霞多丽、黑皮诺）\n🧀 奶酪 → 甜酒或加强酒（如苏玳、波特）\n\n想了解某个产区或品种吗？',
-    '收益管理': '📊 酒店收益管理三要素：\n\n1️⃣ 需求预测 — 历史数据 + 市场洞察\n2️⃣ 动态定价 — 根据预订节奏实时调价\n3️⃣ 房态控制 — 预留房源给高价渠道\n\n核心是：在对的时间，以对的价格，把对的房卖给对的客😊',
-    '美食': '🍜 Julian 最爱探索世界美食！\n\n近期关注：\n🇫🇷 法式 BLWP 配红酒\n🇮🇹 意大利白松露季\n🇯🇵 怀石料理的四季哲学\n🇨🇳 川菜的24味型\n\n有特别想聊的美食话题吗？',
-    '你好': '👋 你好！我是「Hotel & Tourism Insights」的AI助手 🤖\n\n🌟 我能帮你：酒店运营·旅游趋势·葡萄酒·美食旅行\n\n直接发消息，我会尽快回复你！😊'
-};
-
 // AI 人格设定 - Julian 的智能助手
 const SYSTEM_PROMPT = `你是「Hotel & Tourism Insights」的 AI 助手 🧑‍🎓
 
@@ -361,18 +352,7 @@ app.post('/wechat', async (req, res) => {
             return;
         }
         
-        // 4. 关键词触发（精准匹配，直接回复，不走AI）
-        const trimmedContent = Content.trim();
-        for (const [keyword, replyText] of Object.entries(KEYWORD_REPLIES)) {
-            if (trimmedContent.includes(keyword)) {
-                const reply = buildReplyXml(FromUserName, ToUserName, replyText);
-                res.send(reply);
-                console.log(`关键词触发：「${keyword}」→ 直接回复（不走AI）`);
-                return;
-            }
-        }
-        
-        // 5. 没有匹配关键词，调用 AI 获取回复
+        // 4. 调用 AI 获取回复
         const aiReply = await callZhipuAI(FromUserName, trimmedContent);
         
         // 返回回复
@@ -409,31 +389,15 @@ app.post('/test', express.json(), async (req, res) => {
         const testUserId = userId || 'test-user-123';
         console.log(`🧪 测试请求: ${message}`);
         
-        // 关键词触发检查
-        const trimmedContent = message.trim();
-        let reply = null;
-        let triggeredBy = 'ai';
-        
-        for (const [keyword, replyText] of Object.entries(KEYWORD_REPLIES)) {
-            if (trimmedContent.includes(keyword)) {
-                reply = replyText;
-                triggeredBy = 'keyword';
-                console.log(`关键词触发：「${keyword}」→ 直接回复（不走AI）`);
-                break;
-            }
-        }
-        
-        // 没有匹配关键词，调用 AI 获取回复
-        if (!reply) {
-            reply = await callZhipuAI(testUserId, message);
-        }
+        // 调用 AI 获取回复
+        const reply = await callZhipuAI(testUserId, message);
         
         res.json({
             success: true,
             userMessage: message,
             aiReply: reply,
             userId: testUserId,
-            triggeredBy: triggeredBy
+            triggeredBy: 'ai'
         });
         
         console.log(`✅ AI 回复: ${reply.substring(0, 100)}...`);
