@@ -20,6 +20,10 @@ const WECHAT_APPSECRET = process.env.WECHAT_APPSECRET;
 let wechatAccessToken = null;
 let wechatTokenExpiry = 0;
 
+// AI 回复缓存（提升重复问题响应速度）
+const aiCache = new Map();
+const MAX_CACHE_SIZE = 100;
+
 // 获取微信 Access Token
 async function getWechatAccessToken() {
     const now = Date.now();
@@ -157,6 +161,13 @@ function buildReplyXml(toUser, fromUser, content) {
 async function callZhipuAI(userMessage) {
     const startTime = Date.now();
     
+    // 检查缓存
+    const cacheKey = userMessage.toLowerCase().trim();
+    if (aiCache.has(cacheKey)) {
+        console.log(`💾 使用缓存回复 (${userMessage.substring(0, 30)}...)`);
+        return aiCache.get(cacheKey);
+    }
+    
     try {
         console.log(`📤 调用 AI: ${userMessage.substring(0, 50)}...`);
         
@@ -182,6 +193,15 @@ async function callZhipuAI(userMessage) {
         
         const aiReply = response.data.choices[0].message.content;
         console.log(`✅ AI 回复成功 (耗时: ${Date.now() - startTime}ms)`);
+        
+        // 存入缓存（LRU策略：超过上限时删除最早的一条）
+        if (aiCache.size >= MAX_CACHE_SIZE) {
+            const firstKey = aiCache.keys().next().value;
+            aiCache.delete(firstKey);
+            console.log('🗑️  缓存已满，删除最早记录');
+        }
+        aiCache.set(cacheKey, aiReply);
+        console.log(`💾 已缓存回复 (缓存大小: ${aiCache.size})`);
         
         return aiReply;
         
