@@ -409,13 +409,31 @@ app.post('/test', express.json(), async (req, res) => {
         const testUserId = userId || 'test-user-123';
         console.log(`🧪 测试请求: ${message}`);
         
-        const reply = await callZhipuAI(testUserId, message);
+        // 关键词触发检查
+        const trimmedContent = message.trim();
+        let reply = null;
+        let triggeredBy = 'ai';
+        
+        for (const [keyword, replyText] of Object.entries(KEYWORD_REPLIES)) {
+            if (trimmedContent.includes(keyword)) {
+                reply = replyText;
+                triggeredBy = 'keyword';
+                console.log(`关键词触发：「${keyword}」→ 直接回复（不走AI）`);
+                break;
+            }
+        }
+        
+        // 没有匹配关键词，调用 AI 获取回复
+        if (!reply) {
+            reply = await callZhipuAI(testUserId, message);
+        }
         
         res.json({
             success: true,
             userMessage: message,
             aiReply: reply,
-            userId: testUserId
+            userId: testUserId,
+            triggeredBy: triggeredBy
         });
         
         console.log(`✅ AI 回复: ${reply.substring(0, 100)}...`);
