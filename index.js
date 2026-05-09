@@ -134,7 +134,7 @@ app.get('/wechat', (req, res) => {
 
 // 接收微信消息（POST 请求）- 极简版
 app.post('/wechat', async (req, res) => {
-    const AI_TIMEOUT = 3500;  // 3.5秒超时（微信要求5秒内响应）
+    const AI_TIMEOUT = 4000;  // 4.0秒超时（微信要求5秒内响应）
     
     try {
         // 读取请求体
