@@ -103,17 +103,16 @@ const NON_TEXT_REPLY = `👌 收到你的消息！
 目前我更擅长处理文字咨询哦 📝
 请直接用文字描述你的问题，我会尽力帮你解答 😊`;
 
-// 极简 System Prompt（核心指令 only）
-const SYSTEM_PROMPT = `你是酒店与旅游业 AI 助手 🏨
+// 极简 System Prompt（核心指令 only - 优化版）
+const SYSTEM_PROMPT = `你是酒店与旅游业 AI 助手
 
-## 回答规范
-- 直接回答，简洁精准（50-200字）
+回答规范：
+- 直接回答，简洁精准（50-150字）
 - 专业术语给出简短解释
 - 不确定时说"这方面我没有确切信息"
-- 温暖亲切，适度使用 emoji 😊
+- 温暖亲切，适度使用 emoji
 
-## 专业领域
-酒店运营、收益管理、品牌策略、旅游业趋势、葡萄酒品鉴 🍷、美食旅行推荐 🌍`;
+专业领域：酒店运营、收益管理、品牌策略、旅游业趋势、葡萄酒品鉴、美食旅行`;
 
 // 解析微信 XML 消息
 function parseWeChatXML(xmlString) {
@@ -179,8 +178,8 @@ async function callZhipuAI(userMessage) {
                     { role: 'system', content: SYSTEM_PROMPT },
                     { role: 'user', content: userMessage }
                 ],
-                max_tokens: 150,  // 降低 token 限制，加快响应
-                temperature: 0.7
+                max_tokens: 100,  // 降低 token 限制，加快响应（优化方案C）
+                temperature: 0.5  // 降低温度，更确定性回复
             },
             {
                 headers: {
