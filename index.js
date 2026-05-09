@@ -182,7 +182,7 @@ function buildReplyXml(toUser, fromUser, content) {
 }
 
 // 微信服务器验证（GET 请求）
-app.get('/', (req, res) => {
+app.get('/wechat', (req, res) => {
     const { signature, timestamp, nonce, echostr } = req.query;
     
     // 验证签名
@@ -205,7 +205,7 @@ app.get('/', (req, res) => {
 });
 
 // 接收微信消息（POST 请求）
-app.post('/', async (req, res) => {
+app.post('/wechat', async (req, res) => {
     try {
         // 读取原始数据
         let body = '';
