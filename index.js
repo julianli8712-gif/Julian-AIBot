@@ -332,13 +332,24 @@ app.post('/test', express.json(), async (req, res) => {
         
         console.log(`🧪 测试请求: ${message}`);
         
-        // 调用 AI 获取回复
-        const reply = await callZhipuAI(message);
+        // 🆕 先检查预定义问答
+        const faqAnswer = matchFAQ(message);
+        let reply;
+        
+        if (faqAnswer) {
+            // 匹配到预定义问答
+            reply = faqAnswer;
+            console.log(`📚 使用预定义回答`);
+        } else {
+            // 没有匹配，调用 AI
+            reply = await callZhipuAI(message);
+        }
         
         res.json({
             success: true,
             userMessage: message,
-            aiReply: reply
+            aiReply: reply,
+            source: faqAnswer ? 'faq' : 'ai'
         });
         
     } catch (error) {
