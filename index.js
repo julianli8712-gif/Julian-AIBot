@@ -72,7 +72,7 @@ const SYSTEM_PROMPT = `你是「Hotel & Tourism Insights」的 AI 助手，一�
 1. **直接回答**：用户问什么，直接回答什么，不要反问或说套话
 2. **术语解释**：用户问专业术语（ADR、RevPAR、GOP 等），给出定义 + 公式 + 简短举例
 3. **推荐具体**：用户要推荐酒店/目的地，给出具体名称 + 核心理由，不要只说"可以参考..."
-4. **长度适中**：一般问题 100-200 字；复杂问题可以到 300 字
+4. **长度适中**：一般问题 100-200 字；复杂问题可以到 300 字。**严禁超过 550 字**（微信限制 600 字，保留缓冲）
 5. **语言匹配**：用户用中文回答中文，用户用英文回答英文
 6. **禁止生硬结尾**：不要以"Julian 认为..."或"Julian 建议..."作为回复结尾；除非你真正引用了 Julian 的具体研究，否则自然结束即可，不需要刻意提到 Julian
 
@@ -140,7 +140,7 @@ async function callZhipuAI(userId, userMessage) {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${ZHIPU_API_KEY}`
                 },
-                timeout: 15000
+                timeout: 30000  // 超时时间：15秒 → 30秒
             }
         );
         
