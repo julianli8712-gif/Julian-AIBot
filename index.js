@@ -187,7 +187,7 @@ async function callZhipuAI(userMessage) {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${ZHIPU_API_KEY}`
                 },
-                timeout: 5000  // 5秒超时（与微信限制对齐）
+                timeout: 8000  // 8秒超时（给AI更多时间响应，成功后缓存）
             }
         );
         
@@ -344,7 +344,50 @@ app.get('/health', (req, res) => {
         status: 'ok',
         service: 'WeChat AI Bot (Simplified)',
         model: 'glm-4-flash',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        cacheSize: aiCache.size
+    });
+});
+
+// 预加热缓存接口（手动触发）
+app.get('/prewarm', async (req, res) => {
+    const prewarmQuestions = [
+        '什么是ADR？',
+        '如何做好收益管理？',
+        'RevPAR是什么？',
+        '北京有哪些高端酒店推荐？',
+        '酒店集团有哪些？'
+    ];
+    
+    console.log(`🔥 开始预加热缓存（${prewarmQuestions.length}个问题）...`);
+    
+    const results = [];
+    for (const question of prewarmQuestions) {
+        try {
+            const answer = await callZhipuAI(question);
+            results.push({ question, status: '✅ 成功', cacheKey: question.toLowerCase().trim() });
+            console.log(`✅ 已缓存: ${question}`);
+        } catch (error) {
+            results.push({ question, status: '❌ 失败', error: error.message });
+            console.error(`❌ 缓存失败: ${question}`, error.message);
+        }
+    }
+    
+    res.json({
+        success: true,
+        message: `预加热完成（成功 ${results.filter(r => r.status.includes('✅')).length}/${prewarmQuestions.length}）`,
+        results,
+        cacheSize: aiCache.size
+    });
+});
+
+// 查看缓存状态
+app.get('/cache', (req, res) => {
+    const cacheKeys = Array.from(aiCache.keys());
+    res.json({
+        cacheSize: aiCache.size,
+        maxCacheSize: MAX_CACHE_SIZE,
+        keys: cacheKeys
     });
 });
 
@@ -457,12 +500,13 @@ app.post('/test', express.json(), async (req, res) => {
 });
 
 // 启动服务
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
     console.log(`🤖 WeChat AI Bot 启动成功！`);
     console.log(`🌐 监听端口: ${PORT}`);
     console.log(`🤖 使用模型: 智谱 GLM-4-Flash`);
     console.log(`💚 健康检查: http://localhost:${PORT}/health`);
     console.log(`📝 模式: 极简版（无对话历史）`);
+    console.log(`💾 缓存上限: ${MAX_CACHE_SIZE} 条`);
     
     if (!ZHIPU_API_KEY) {
         console.warn('⚠️  警告: ZHIPU_API_KEY 未设置！');
@@ -470,4 +514,32 @@ app.listen(PORT, () => {
     if (!process.env.WECHAT_TOKEN) {
         console.warn('⚠️  警告: WECHAT_TOKEN 未设置！');
     }
+    
+    // 自动预加热缓存（3个核心问题）
+    const autoPrewarmQuestions = [
+        '什么是ADR？',
+        'RevPAR怎么计算？',
+        '如何做好酒店收益管理？'
+    ];
+    
+    console.log(`\n🔥 开始自动预加热缓存（${autoPrewarmQuestions.length}个核心问题）...`);
+    
+    for (const question of autoPrewarmQuestions) {
+        try {
+            // 先检查是否已在缓存中
+            const cacheKey = question.toLowerCase().trim();
+            if (aiCache.has(cacheKey)) {
+                console.log(`💾 已缓存: ${question}`);
+                continue;
+            }
+            
+            // 调用AI并缓存
+            const answer = await callZhipuAI(question);
+            console.log(`✅ 已预加热: ${question}`);
+        } catch (error) {
+            console.error(`❌ 预加热失败: ${question}`, error.message);
+        }
+    }
+    
+    console.log(`\n✅ 服务器就绪！当前缓存大小: ${aiCache.size}\n`);
 });
