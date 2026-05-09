@@ -392,6 +392,72 @@ app.get('/health', (req, res) => {
     });
 });
 
+// 测试接口 - 浏览器测试页面（GET）
+app.get('/test', (req, res) => {
+    res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Hotel AI 测试</title>
+            <style>
+                body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
+                h1 { color: #333; }
+                textarea { width: 100%; height: 100px; margin: 10px 0; padding: 10px; }
+                button { background: #007bff; color: white; padding: 10px 20px; border: none; cursor: pointer; }
+                button:hover { background: #0056b3; }
+                #result { margin-top: 20px; padding: 15px; background: #f5f5f5; border-radius: 5px; white-space: pre-wrap; }
+                .success { color: green; }
+                .error { color: red; }
+            </style>
+        </head>
+        <body>
+            <h1>🏨 Hotel AI 测试界面</h1>
+            <p>输入测试消息，测试 AI 回复：</p>
+            <textarea id="message" placeholder="输入你的问题..."></textarea>
+            <br>
+            <button onclick="testAI()">发送测试</button>
+            <div id="result"></div>
+            
+            <script>
+                async function testAI() {
+                    const message = document.getElementById('message').value;
+                    if (!message) {
+                        alert('请输入测试消息');
+                        return;
+                    }
+                    
+                    document.getElementById('result').innerHTML = '⏳ 请求中...';
+                    
+                    try {
+                        const response = await fetch('/test', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ message: message })
+                        });
+                        
+                        const data = await response.json();
+                        
+                        if (data.success) {
+                            document.getElementById('result').innerHTML = 
+                                '<strong class="success">✅ 成功！</strong>\\n\\n' +
+                                '<strong>用户消息:</strong> ' + data.userMessage + '\\n\\n' +
+                                '<strong>AI 回复:</strong> ' + data.aiReply;
+                        } else {
+                            document.getElementById('result').innerHTML = 
+                                '<strong class="error">❌ 失败:</strong> ' + data.error;
+                        }
+                    } catch (error) {
+                        document.getElementById('result').innerHTML = 
+                            '<strong class="error">❌ 请求失败:</strong> ' + error.message;
+                    }
+                }
+            </script>
+        </body>
+        </html>
+    `);
+});
+
 // 测试接口 - 直接测试 AI 回复（不需要微信公众号）
 app.post('/test', express.json(), async (req, res) => {
     // 设置请求超时（25秒，留5秒给 Railway）
