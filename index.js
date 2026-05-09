@@ -37,6 +37,87 @@ async function initRedis() {
     }
 }
 
+// 微信 Access Token 管理（客服消息接口需要）
+let wechatAccessToken = null;
+let wechatTokenExpiry = 0;
+
+async function getWechatAccessToken() {
+    // 如果 token 仍有效，直接返回
+    if (wechatAccessToken && Date.now() < wechatTokenExpiry) {
+        return wechatAccessToken;
+    }
+    
+    const appId = process.env.WECHAT_APPID;
+    const appSecret = process.env.WECHAT_APPSECRET;
+    
+    if (!appId || !appSecret) {
+        console.error('❌ WECHAT_APPID 或 WECHAT_APPSECRET 未设置！');
+        return null;
+    }
+    
+    try {
+        const response = await axios.get('https://api.wechat.qq.com/cgi-bin/token', {
+            params: {
+                grant_type: 'client_credential',
+                appid: appId,
+                secret: appSecret
+            },
+            timeout: 5000
+        });
+        
+        if (response.data.access_token) {
+            wechatAccessToken = response.data.access_token;
+            // 提前 5 分钟过期，避免边界问题
+            wechatTokenExpiry = Date.now() + (response.data.expires_in - 300) * 1000;
+            console.log('✅ 微信 Access Token 获取成功');
+            return wechatAccessToken;
+        } else {
+            console.error('❌ 获取 Access Token 失败:', response.data);
+            return null;
+        }
+    } catch (error) {
+        console.error('❌ 获取 Access Token 错误:', error.message);
+        return null;
+    }
+}
+
+// 发送客服消息（异步回复）
+async function sendCustomerServiceMessage(openId, content) {
+    const accessToken = await getWechatAccessToken();
+    
+    if (!accessToken) {
+        console.error('❌ 无法获取 Access Token，无法发送客服消息');
+        return false;
+    }
+    
+    try {
+        const response = await axios.post(
+            `https://api.wechat.qq.com/cgi-bin/message/custom/send?access_token=${accessToken}`,
+            {
+                touser: openId,
+                msgtype: 'text',
+                text: {
+                    content: content
+                }
+            },
+            {
+                timeout: 10000
+            }
+        );
+        
+        if (response.data.errcode === 0) {
+            console.log(`✅ 客服消息发送成功: ${openId}`);
+            return true;
+        } else {
+            console.error('❌ 客服消息发送失败:', response.data);
+            return false;
+        }
+    } catch (error) {
+        console.error('❌ 发送客服消息错误:', error.message);
+        return false;
+    }
+}
+
 // AI 人格设定 - 酒店与旅游业专家
 const SYSTEM_PROMPT = `你是「Hotel & Tourism Insights」的 AI 助手，一位酒店与旅游业专家 🏨
 
@@ -301,8 +382,19 @@ app.get('/wechat', (req, res) => {
     }
 });
 
-// 接收微信消息（POST 请求）
+// 接收微信消息（POST 请求）- 异步处理版本
 app.post('/wechat', async (req, res) => {
+    // 立即发送响应（5秒内），避免微信超时
+    res.status(200).send('success');
+    
+    // 后台处理消息（不阻塞响应）
+    processWechatMessage(req).catch(error => {
+        console.error('后台处理消息失败:', error);
+    });
+});
+
+// 后台处理微信消息
+async function processWechatMessage(req) {
     try {
         // 读取原始数据
         let body = '';
@@ -317,73 +409,67 @@ app.post('/wechat', async (req, res) => {
         
         // 解析消息
         const msg = parseWeChatXML(body);
-        
-        const { MsgType, Event, FromUserName, ToUserName } = msg;
+        const { MsgType, Event, FromUserName, ToUserName, Content, Recognition } = msg;
         
         // 1. 处理关注事件
         if (MsgType === 'event' && Event === 'subscribe') {
-            const reply = buildReplyXml(FromUserName, ToUserName, WELCOME_MESSAGE);
-            res.send(reply);
+            await sendCustomerServiceMessage(FromUserName, WELCOME_MESSAGE);
             return;
         }
         
-        // 2. 处理语音消息（微信已自动识别成文字）
+        // 2. 处理语音消息
+        let textContent = '';
         if (MsgType === 'voice') {
-            const voiceText = msg.Recognition || msg.Content || '';
-            if (voiceText && voiceText.trim()) {
-                // 调用 AI 获取回复
-                const aiReply = await callZhipuAI(FromUserName, voiceText);
-                const reply = buildReplyXml(FromUserName, ToUserName, aiReply);
-                res.send(reply);
-                return;
-            }
+            textContent = Recognition || Content || '';
         }
         
-        // 3. 只处理文本消息
-        if (MsgType !== 'text') {
-            const reply = buildReplyXml(FromUserName, ToUserName, NON_TEXT_REPLY);
-            res.send(reply);
+        // 3. 只处理文本和语音消息
+        if (MsgType !== 'text' && MsgType !== 'voice') {
+            await sendCustomerServiceMessage(FromUserName, NON_TEXT_REPLY);
             return;
         }
         
-        const { Content } = msg;
+        if (MsgType === 'text') {
+            textContent = Content || '';
+        }
         
         // 忽略空消息
-        if (!Content || Content.trim() === '') {
-            const reply = buildReplyXml(
-                FromUserName, 
-                ToUserName, 
+        if (!textContent || textContent.trim() === '') {
+            await sendCustomerServiceMessage(
+                FromUserName,
                 '👋 你好！有什么酒店旅游方面的问题想问我吗？'
             );
-            res.send(reply);
             return;
         }
         
+        const trimmedContent = textContent.trim();
+        
         // 限流检查
-        const trimmedContent = Content.trim();
         if (!checkRateLimit(FromUserName)) {
-            const reply = buildReplyXml(
-                FromUserName, 
-                ToUserName, 
+            await sendCustomerServiceMessage(
+                FromUserName,
                 '⚠️ 消息发送太快啦～请稍等片刻再提问哦 😊'
             );
-            res.send(reply);
             return;
         }
         
         // 4. 调用 AI 获取回复
+        console.log(`📨 后台处理消息: ${trimmedContent}`);
         const aiReply = await callZhipuAI(FromUserName, trimmedContent);
         
-        // 返回回复
-        const reply = buildReplyXml(FromUserName, ToUserName, aiReply);
-        res.send(reply);
+        // 5. 通过客服消息接口发送回复
+        const success = await sendCustomerServiceMessage(FromUserName, aiReply);
+        
+        if (success) {
+            console.log(`✅ 客服消息发送成功: ${trimmedContent.substring(0, 50)}...`);
+        } else {
+            console.error(`❌ 客服消息发送失败: ${trimmedContent.substring(0, 50)}...`);
+        }
         
     } catch (error) {
         console.error('处理消息失败:', error);
-        // 必须5秒内响应微信服务器
-        res.send('success');
     }
-});
+}
 
 // 健康检查接口
 app.get('/health', (req, res) => {
