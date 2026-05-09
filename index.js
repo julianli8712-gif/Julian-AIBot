@@ -360,6 +360,7 @@ app.post('/wechat', async (req, res) => {
         }
         
         // 限流检查
+        const trimmedContent = Content.trim();
         if (!checkRateLimit(FromUserName)) {
             const reply = buildReplyXml(
                 FromUserName, 
