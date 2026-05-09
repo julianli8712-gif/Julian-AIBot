@@ -288,33 +288,13 @@ app.get('/wechat', (req, res) => {
 
 // 接收微信消息（POST 请求）- 被动回复模式（5秒内必须响应）
 app.post('/wechat', async (req, res) => {
-    // 必须在 5 秒内响应微信服务器
-    const TIMEOUT_MS = 4500;  // 4.5秒超时，留0.5秒缓冲
-    
-    let body = '';
-    req.on('data', chunk => {
-        body += chunk;
-    });
+    // 微信要求5秒内响应，使用 Promise.race 实现3.5秒超时
+    const AI_TIMEOUT = 3500;
     
     try {
-        // 设置整体超时（4.5秒）
-        const timeoutPromise = new Promise((resolve) => {
-            setTimeout(() => {
-                if (!res.headersSent) {
-                    // 超时了，返回默认回复
-                    const xmlReply = buildReplyXml(
-                        parseWeChatXML(body).FromUserName || 'unknown',
-                        parseWeChatXML(body).ToUserName || 'unknown',
-                        '⏱️ 回复有点慢，请稍后再试～'
-                    );
-                    res.set('Content-Type', 'application/xml');
-                    res.send(xmlReply);
-                    console.log('⚠️  整体超时（4.5秒），已返回默认回复');
-                }
-            }, TIMEOUT_MS);
-        });
-        
-        // 等待请求体接收完成
+        // 读取请求体
+        let body = '';
+        req.on('data', chunk => { body += chunk; });
         await new Promise((resolve, reject) => {
             req.on('end', resolve);
             req.on('error', reject);
