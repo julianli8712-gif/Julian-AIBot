@@ -56,7 +56,7 @@ async function getWechatAccessToken() {
     }
     
     try {
-        const response = await axios.get('https://api.wechat.qq.com/cgi-bin/token', {
+        const response = await axios.get('https://api.weixin.qq.com/cgi-bin/token', {
             params: {
                 grant_type: 'client_credential',
                 appid: appId,
@@ -92,7 +92,7 @@ async function sendCustomerServiceMessage(openId, content) {
     
     try {
         const response = await axios.post(
-            `https://api.wechat.qq.com/cgi-bin/message/custom/send?access_token=${accessToken}`,
+            `https://api.weixin.qq.com/cgi-bin/message/custom/send?access_token=${accessToken}`,
             {
                 touser: openId,
                 msgtype: 'text',
