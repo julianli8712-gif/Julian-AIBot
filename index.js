@@ -140,7 +140,7 @@ async function callZhipuAI(userId, userMessage) {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${ZHIPU_API_KEY}`
                 },
-                timeout: 30000  // 超时时间：15秒 → 30秒
+                timeout: 25000  // 超时时间：30秒 → 25秒（避免与 Railway 30秒超时冲突）
             }
         );
         
@@ -398,10 +398,22 @@ app.get('/health', (req, res) => {
 
 // 测试接口 - 直接测试 AI 回复（不需要微信公众号）
 app.post('/test', express.json(), async (req, res) => {
+    // 设置请求超时（25秒，留5秒给 Railway）
+    const requestTimeout = setTimeout(() => {
+        if (!res.headersSent) {
+            console.error('⏱️  请求超时（25秒）');
+            res.status(504).json({
+                success: false,
+                error: '请求超时，请稍后重试'
+            });
+        }
+    }, 25000);
+    
     try {
         const { message, userId } = req.body;
         
         if (!message) {
+            clearTimeout(requestTimeout);
             return res.status(400).json({ error: '缺少 message 参数' });
         }
         
@@ -410,6 +422,8 @@ app.post('/test', express.json(), async (req, res) => {
         
         // 调用 AI 获取回复
         const reply = await callZhipuAI(testUserId, message);
+        
+        clearTimeout(requestTimeout);
         
         res.json({
             success: true,
@@ -422,11 +436,16 @@ app.post('/test', express.json(), async (req, res) => {
         console.log(`✅ AI 回复: ${reply.substring(0, 100)}...`);
         
     } catch (error) {
+        clearTimeout(requestTimeout);
         console.error('测试失败:', error);
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
+        
+        // 确保总是返回响应，防止应用崩溃
+        if (!res.headersSent) {
+            res.status(500).json({
+                success: false,
+                error: error.message || '服务内部错误'
+            });
+        }
     }
 });
 
