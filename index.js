@@ -1,6 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const axios = require('axios');
+const redis = require('redis');
 require('dotenv').config();
 
 const app = express();
@@ -9,6 +10,38 @@ const PORT = process.env.PORT || 3000;
 // 智谱 AI 配置（OpenAI 兼容）
 const ZHIPU_BASE_URL = process.env.ZHIPU_BASE_URL || 'https://open.bigmodel.cn/api/paas/v4/';
 const ZHIPU_API_KEY = process.env.ZHIPU_API_KEY;
+
+// Redis 连接（用于对话历史持久化）
+let redisClient = null;
+let useRedis = false;
+
+async function initRedis() {
+    if (process.env.REDIS_URL) {
+        try {
+            redisClient = redis.createClient({
+                url: process.env.REDIS_URL
+            });
+            redisClient.on('error', (err) => console.log('Redis Client Error', err));
+            await redisClient.connect();
+            useRedis = true;
+            console.log('✅ Redis 连接成功！对话历史已持久化');
+        } catch (error) {
+            console.log('⚠️  Redis 连接失败，使用内存存储');
+            useRedis = false;
+        }
+    } else {
+        console.log('⚠️  未配置 REDIS_URL，使用内存存储（重启后丢失对话历史）');
+    }
+}
+
+// 关键词触发配置（精准匹配，直接回复不走AI）
+const KEYWORD_REPLIES = {
+    '推荐酒店': '🏨 推荐你关注这几个标杆：\n\n1️⃣ 安缦（Aman）— 极致私密与宁静\n2️⃣ 文华东方 — 服务细腻，品味独到\n3️⃣ 瑰丽（Rosewood）— 现代奢华与本土文化融合\n\n想深入了解哪一家？😊',
+    '葡萄酒': '🍷 葡萄酒搭配小技巧：\n\n🔴 红肉 → 高单宁红酒（如波尔多、赤霞珠）\n⚪ 海鲜/禽类 → 白酒或淡红酒（如霞多丽、黑皮诺）\n🧀 奶酪 → 甜酒或加强酒（如苏玳、波特）\n\n想了解某个产区或品种吗？',
+    '收益管理': '📊 酒店收益管理三要素：\n\n1️⃣ 需求预测 — 历史数据 + 市场洞察\n2️⃣ 动态定价 — 根据预订节奏实时调价\n3️⃣ 房态控制 — 预留房源给高价渠道\n\n核心是：在对的时间，以对的价格，把对的房卖给对的客😊',
+    '美食': '🍜 Julian 最爱探索世界美食！\n\n近期关注：\n🇫🇷 法式 BLWP 配红酒\n🇮🇹 意大利白松露季\n🇯🇵 怀石料理的四季哲学\n🇨🇳 川菜的24味型\n\n有特别想聊的美食话题吗？',
+    '你好': '👋 你好！我是「Hotel & Tourism Insights」的AI助手 🤖\n\n🌟 我能帮你：酒店运营·旅游趋势·葡萄酒·美食旅行\n\n直接发消息，我会尽快回复你！😊'
+};
 
 // AI 人格设定 - Julian 的智能助手
 const SYSTEM_PROMPT = `你是「Hotel & Tourism Insights」的 AI 助手 🧑‍🎓
@@ -54,20 +87,25 @@ const SYSTEM_PROMPT = `你是「Hotel & Tourism Insights」的 AI 助手 🧑‍
 - 用户开心 → 一起开心 😊
 - 可以提及 Julian 的见解，但不说「Julian 让我...」这种话`;
 
-// 对话历史存储（生产环境建议用 Redis）
+// 对话历史存储（Redis 或内存回退）
 const conversations = new Map();
-
-// 限流存储
-const rateLimit = new Map();
 
 // 调用智谱 AI（OpenAI 兼容格式）
 async function callZhipuAI(userId, userMessage) {
-    // 获取对话历史
-    if (!conversations.has(userId)) {
-        conversations.set(userId, []);
+    // 从 Redis 或内存获取对话历史
+    let history = [];
+    try {
+        if (useRedis && redisClient) {
+            const data = await redisClient.get(`conv:${userId}`);
+            if (data) history = JSON.parse(data);
+        } else {
+            if (conversations.has(userId)) {
+                history = conversations.get(userId);
+            }
+        }
+    } catch (e) {
+        console.log('读取对话历史失败，使用空历史');
     }
-    
-    const history = conversations.get(userId);
     
     // 构建消息列表
     const messages = [
@@ -80,7 +118,7 @@ async function callZhipuAI(userId, userMessage) {
         const response = await axios.post(
             `${ZHIPU_BASE_URL}/chat/completions`,
             {
-                model: 'glm-4-flash',  // 最经济的模型
+                model: 'glm-4-flash',
                 messages: messages,
                 max_tokens: 500,
                 temperature: 0.8
@@ -90,21 +128,31 @@ async function callZhipuAI(userId, userMessage) {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${ZHIPU_API_KEY}`
                 },
-                timeout: 4500  // 微信要求5秒内响应，留500ms缓冲
+                timeout: 4500
             }
         );
         
         const aiReply = response.data.choices[0].message.content;
         
-        // 保存对话历史（保留最近10轮）
+        // 保存对话历史（保留最近10轮 / 20条）
         history.push(
             { role: 'user', content: userMessage },
             { role: 'assistant', content: aiReply }
         );
         
-        // 限制历史长度
         if (history.length > 20) {
-            history.splice(0, 4);  // 删除最早的2轮对话
+            history = history.slice(-20);
+        }
+        
+        // 持久化到 Redis 或内存
+        try {
+            if (useRedis && redisClient) {
+                await redisClient.setEx(`conv:${userId}`, 86400, JSON.stringify(history));
+            } else {
+                conversations.set(userId, history);
+            }
+        } catch (e) {
+            console.log('保存对话历史失败');
         }
         
         return aiReply;
@@ -310,8 +358,19 @@ app.post('/wechat', async (req, res) => {
             return;
         }
         
-        // 调用 AI 获取回复
-        const aiReply = await callZhipuAI(FromUserName, Content);
+        // 4. 关键词触发（精准匹配，直接回复，不走AI）
+        const trimmedContent = Content.trim();
+        for (const [keyword, replyText] of Object.entries(KEYWORD_REPLIES)) {
+            if (trimmedContent.includes(keyword)) {
+                const reply = buildReplyXml(FromUserName, ToUserName, replyText);
+                res.send(reply);
+                console.log(`关键词触发：「${keyword}」→ 直接回复（不走AI）`);
+                return;
+            }
+        }
+        
+        // 5. 没有匹配关键词，调用 AI 获取回复
+        const aiReply = await callZhipuAI(FromUserName, trimmedContent);
         
         // 返回回复
         const reply = buildReplyXml(FromUserName, ToUserName, aiReply);
@@ -335,7 +394,7 @@ app.get('/health', (req, res) => {
 });
 
 // 启动服务
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
     console.log(`🏨 Hotel AI 服务启动成功！`);
     console.log(`🌐 监听端口: ${PORT}`);
     console.log(`🤖 使用模型: 智谱 GLM-4-Flash`);
@@ -347,4 +406,7 @@ app.listen(PORT, () => {
     if (!process.env.WECHAT_TOKEN) {
         console.warn('⚠️  警告: WECHAT_TOKEN 未设置！');
     }
+    
+    // 初始化 Redis 连接
+    await initRedis();
 });
