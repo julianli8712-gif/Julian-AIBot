@@ -81,6 +81,8 @@ const conversations = new Map();
 
 // 调用智谱 AI（OpenAI 兼容格式）
 async function callZhipuAI(userId, userMessage) {
+    const startTime = Date.now();  // 开始计时
+    
     // 从 Redis 或内存获取对话历史
     let history = [];
     try {
@@ -104,6 +106,8 @@ async function callZhipuAI(userId, userMessage) {
     ];
     
     try {
+        console.log(`📤 调用智谱 AI... (userId: ${userId})`);
+        
         const response = await axios.post(
             `${ZHIPU_BASE_URL}/chat/completions`,
             {
@@ -117,11 +121,14 @@ async function callZhipuAI(userId, userMessage) {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${ZHIPU_API_KEY}`
                 },
-                timeout: 25000  // 超时时间：30秒 → 25秒（避免与 Railway 30秒超时冲突）
+                timeout: 20000  // 超时时间：25秒 → 20秒（更激进）
             }
         );
         
         const aiReply = response.data.choices[0].message.content;
+        const endTime = Date.now();
+        
+        console.log(`✅ AI 回复成功 (耗时: ${endTime - startTime}ms)`);
         
         // 保存对话历史（保留最近10轮 / 20条）
         history.push(
@@ -147,7 +154,8 @@ async function callZhipuAI(userId, userMessage) {
         return aiReply;
         
     } catch (error) {
-        console.error('智谱 AI 错误:', error.response?.data || error.message);
+        const endTime = Date.now();
+        console.error(`❌ 智谱 AI 错误 (耗时: ${endTime - startTime}ms):`, error.response?.data || error.message);
         
         // 降级处理
         if (error.response?.status === 429) {
