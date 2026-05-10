@@ -314,11 +314,18 @@ async function test(){
 // ========== 测试接口（POST /test） ==========
 app.post('/test', express.json(), async (req, res) => {
     try {
-        const { message } = req.body;
+        const { message, userId } = req.body;
         if (!message) return res.status(400).json({ error: '缺少 message 参数' });
-        console.log(`🧪 测试: ${message}`);
+        console.log(`🧪 测试: ${message} (userId: ${userId || 'none'})`);
         const faqAnswer = matchFAQ(message);
-        const reply = faqAnswer || await callQwenAI(message);
+        const reply = faqAnswer || await callQwenAI(message, userId);
+        
+        // 保存到对话历史（仅AI回复，非FAQ）
+        if (!faqAnswer && userId) {
+            addToHistory(userId, 'user', message);
+            addToHistory(userId, 'assistant', reply);
+        }
+        
         res.json({ success: true, userMessage: message, aiReply: reply, source: faqAnswer ? 'faq' : 'ai' });
     } catch (error) {
         console.error('测试失败:', error);
