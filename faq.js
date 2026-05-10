@@ -157,6 +157,28 @@ ADR = Room Revenue ÷ Rooms Sold
 我会尽快回复你！😊`
     },
     
+    // 关于 Julian 和公众号
+    '关于': {
+        keywords: ['julian', '朱利安', '是谁', '关于', '公众号', 'hotel', 'tourism', 'insights', '背景', '介绍', '创始', '创建'],
+        answer: `👋 关于 Julian Li 和「Hotel & Tourism Insights」
+
+## 👤 Julian Li
+- 香港理工大学酒店及旅游业管理学院（SHTM）博士研究生
+- 研究方向：中国豪华酒店的AI治理与生成式AI应用
+- 背景：拥有酒店与餐饮行业实践经验，懂葡萄酒与美食鉴赏
+
+## 📰 公众号定位
+「Hotel & Tourism Insights」是 Julian 创建的知识分享平台：
+- 分享酒店与旅游业的前沿研究
+- 探讨AI在酒店业的应用
+- 提供行业洞察与管理知识
+
+## 🤖 关于我（AI助手）
+我是 Julian 的智能助手，可以回答酒店运营、收益管理、品牌策略、葡萄酒品鉴等专业问题。
+
+💡 直接发消息提问，我会尽快回复！`
+    },
+    
     // OTA 相关问题
     'OTA': {
         keywords: ['ota', '在线旅游', '携程', '美团', 'booking', 'agoda'],
