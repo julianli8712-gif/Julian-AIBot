@@ -7,7 +7,15 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 智谱 AI 配置
+// AI 模型配置（通过 AI_PROVIDER 环境变量切换：'qwen' 或 'zhipu'，默认 qwen）
+const AI_PROVIDER = process.env.AI_PROVIDER || 'qwen';
+
+// 阿里云 Qwen 配置
+const QWEN_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+const QWEN_API_KEY = process.env.QWEN_API_KEY;
+const QWEN_MODEL = process.env.QWEN_MODEL || 'qwen-turbo';
+
+// 智谱 AI 配置（备用）
 const ZHIPU_BASE_URL = process.env.ZHIPU_BASE_URL || 'https://open.bigmodel.cn/api/paas/v4/';
 const ZHIPU_API_KEY = process.env.ZHIPU_API_KEY;
 
@@ -156,7 +164,7 @@ function buildReplyXml(toUser, fromUser, content) {
 </xml>`;
 }
 
-// 调用智谱 AI（同步模式优化版 - 极速响应）
+// 统一 AI 调用入口（自动根据 AI_PROVIDER 选择模型）
 async function callZhipuAI(userMessage) {
     const startTime = Date.now();
     
@@ -168,33 +176,49 @@ async function callZhipuAI(userMessage) {
     }
     
     try {
-        console.log(`📤 调用 AI: ${userMessage.substring(0, 50)}...`);
+        let baseURL, apiKey, model, response;
         
-        const response = await axios.post(
-            `${ZHIPU_BASE_URL}/chat/completions`,
+        if (AI_PROVIDER === 'qwen') {
+            // 阿里云 Qwen
+            baseURL = QWEN_BASE_URL;
+            apiKey = QWEN_API_KEY;
+            model = QWEN_MODEL;
+            console.log(`📤 [Qwen] 调用 AI: ${userMessage.substring(0, 50)}...`);
+        } else {
+            // 智谱 GLM（备用）
+            baseURL = `${ZHIPU_BASE_URL}/chat/completions`;
+            apiKey = ZHIPU_API_KEY;
+            model = 'glm-4-flash';
+            console.log(`📤 [GLM] 调用 AI: ${userMessage.substring(0, 50)}...`);
+        }
+        
+        response = await axios.post(
+            AI_PROVIDER === 'qwen'
+                ? `${baseURL}/chat/completions`
+                : baseURL,
             {
-                model: 'glm-4-flash',
+                model: model,
                 messages: [
                     { role: 'system', content: SYSTEM_PROMPT },
                     { role: 'user', content: userMessage }
                 ],
-                max_tokens: 80,  // 进一步降低 token（同步模式需更快响应）
-                temperature: 0.3  // 更确定性，减少生成时间
+                max_tokens: 100,
+                temperature: 0.3
             },
             {
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${ZHIPU_API_KEY}`
+                    'Authorization': `Bearer ${apiKey}`
                 },
-                timeout: 4000  // 4秒超时（同步模式必须在5秒内完成）
+                timeout: 4000
             }
         );
         
         const aiReply = response.data.choices[0].message.content;
         const elapsed = Date.now() - startTime;
-        console.log(`✅ AI 回复成功 (耗时: ${elapsed}ms)`);
+        console.log(`✅ [${AI_PROVIDER.toUpperCase()}] 回复成功 (耗时: ${elapsed}ms)`);
         
-        // 存入缓存（LRU策略：超过上限时删除最早的一条）
+        // 存入缓存
         if (aiCache.size >= MAX_CACHE_SIZE) {
             const firstKey = aiCache.keys().next().value;
             aiCache.delete(firstKey);
@@ -205,9 +229,8 @@ async function callZhipuAI(userMessage) {
         
     } catch (error) {
         const elapsed = Date.now() - startTime;
-        console.error(`❌ AI 错误 (耗时: ${elapsed}ms):`, error.code || error.message);
+        console.error(`❌ [${AI_PROVIDER.toUpperCase()}] 错误 (耗时: ${elapsed}ms):`, error.code || error.message);
         
-        // 超时时返回兜底回复（避免用户无响应）
         if (error.code === 'ECONNABORTED') {
             console.log('⏱️ AI 超时，返回兜底回复');
             return '👌 收到！我正在思考中，稍后给你详细回复～\n\n你可以先看看公众号菜单里的精选内容 📖';
@@ -339,8 +362,9 @@ app.post('/wechat', async (req, res) => {
 app.get('/health', (req, res) => {
     res.json({
         status: 'ok',
-        service: 'WeChat AI Bot (Simplified)',
-        model: 'glm-4-flash',
+        service: 'WeChat AI Bot',
+        provider: AI_PROVIDER,
+        model: AI_PROVIDER === 'qwen' ? QWEN_MODEL : 'glm-4-flash',
         timestamp: new Date().toISOString(),
         cacheSize: aiCache.size
     });
@@ -500,12 +524,16 @@ app.post('/test', express.json(), async (req, res) => {
 app.listen(PORT, async () => {
     console.log(`🤖 WeChat AI Bot 启动成功！`);
     console.log(`🌐 监听端口: ${PORT}`);
-    console.log(`🤖 使用模型: 智谱 GLM-4-Flash`);
+    console.log(`🤖 AI 提供商: ${AI_PROVIDER.toUpperCase()}`);
+    console.log(`🤖 使用模型: ${AI_PROVIDER === 'qwen' ? QWEN_MODEL : 'glm-4-flash'}`);
     console.log(`💚 健康检查: http://localhost:${PORT}/health`);
     console.log(`📝 模式: 极简版（无对话历史）`);
     console.log(`💾 缓存上限: ${MAX_CACHE_SIZE} 条`);
     
-    if (!ZHIPU_API_KEY) {
+    if (AI_PROVIDER === 'qwen' && !QWEN_API_KEY) {
+        console.warn('⚠️  警告: QWEN_API_KEY 未设置！');
+    }
+    if (AI_PROVIDER === 'zhipu' && !ZHIPU_API_KEY) {
         console.warn('⚠️  警告: ZHIPU_API_KEY 未设置！');
     }
     if (!process.env.WECHAT_TOKEN) {
