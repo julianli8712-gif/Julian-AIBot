@@ -326,6 +326,25 @@ app.post('/test', express.json(), async (req, res) => {
     }
 });
 
+// ========== 清空对话历史（POST /test/clear） ==========
+app.post('/test/clear', express.json(), async (req, res) => {
+    try {
+        const { userId } = req.body;
+        if (!userId) return res.status(400).json({ error: '缺少 userId 参数' });
+        
+        if (conversationHistory.has(userId)) {
+            conversationHistory.delete(userId);
+            console.log(`🗑️  [对话历史] 已清空用户 ${userId.substring(0, 10)}... 的对话历史`);
+            res.json({ success: true, message: `已清空用户 ${userId} 的对话历史` });
+        } else {
+            res.json({ success: true, message: `用户 ${userId} 没有对话历史` });
+        }
+    } catch (error) {
+        console.error('清空历史失败:', error);
+        if (!res.headersSent) res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 // ========== 启动 ==========
 app.listen(PORT, async () => {
     console.log(`🤖 WeChat AI Bot 启动成功！`);
