@@ -48,9 +48,41 @@ ADR = Room Revenue ÷ Rooms Sold
 📚 推荐书籍：《酒店收益管理》- 本土化实践指南`
     },
     
+    // 酒店推荐（通用）
+    '酒店推荐': {
+        keywords: ['推荐酒店', '推荐一家', '推荐个', '有哪些酒店', '有什么酒店', '酒店推荐', '住哪里', '哪里住', '住宿推荐', '推荐一下'],
+        answer: `🏨 酒店推荐指南
+
+## 推荐逻辑
+告诉我你的需求，我会给你个性化推荐：
+- **城市**：北京 / 上海 / 三亚 / 杭州...
+- **档次**：经济 / 中档 / 高端 / 豪华
+- **目的**：商务 / 度假 / 亲子 / 打卡
+
+## 热门城市推荐
+**北京**：
+- 商务：国贸大酒店、四季、瑰丽
+- 特色：瑜舍（三里屯）、颐和安缦
+
+**上海**：
+- 外滩：和平饭店、外滩华尔道夫
+- 现代：上海中心J酒店、浦东丽思卡尔顿
+
+**三亚**：
+- 度假：亚龙湾美高梅、海棠湾康莱德
+- 亲子：亚特兰蒂斯
+
+## 如何提问？
+✅ "推荐上海外滩的豪华酒店"
+✅ "北京商务出差住哪里？"
+✅ "三亚亲子酒店推荐"
+
+💡 具体需求告诉我，我帮你细化～`
+    },
+    
     // 北京酒店推荐
     '北京酒店': {
-        keywords: ['北京酒店', '北京高端酒店', '北京推荐酒店', '北京五星', '北京豪华酒店', '北京哪里住', '五星酒店', '高端酒店推荐', '北京住宿'],
+        keywords: ['北京酒店', '北京高端酒店', '北京推荐酒店', '北京五星', '北京豪华酒店', '北京哪里住', '五星酒店', '高端酒店推荐', '北京住宿', '北京有哪些酒店', '北京住宿推荐', '北京玩住哪里', '北京有什么好酒店', '北京有哪些高端'],
         answer: `🏨 北京高端酒店推荐
 
 ## 国际品牌
@@ -102,9 +134,9 @@ ADR = Room Revenue ÷ Rooms Sold
 💡 RevPAR 高 = 收益好，但要结合成本控制分析～`
     },
     
-    // 欢迎/帮助
+    // 帮助/欢迎
     '帮助': {
-        keywords: ['帮助', 'help', '能干嘛', '能做什么'],
+        keywords: ['帮助', 'help', '能干嘛', '能做什么', '你好', '您好', '嗨', '嗨喽', '介绍', '功能'],
         answer: `👋 我是酒店与旅游业 AI 助手 🏨
 
 ## 🛠️ 我能帮你：
@@ -288,7 +320,7 @@ Occupancy Rate = (Rooms Sold ÷ Total Available Rooms) × 100%
     
     // 酒店类型
     '酒店类型': {
-        keywords: ['商务酒店', '度假酒店', '精品酒店', '经济型酒店', '中档酒店', '豪华酒店'],
+        keywords: ['商务酒店', '度假酒店', '精品酒店', '经济型酒店', '中档酒店', '酒店类型', '类型', '分类', '酒店分类', '什么类型'],
         answer: `🏨 酒店类型详解
 
 ## 按客群分类
@@ -584,17 +616,34 @@ Occupancy Rate = (Rooms Sold ÷ Total Available Rooms) × 100%
     }
 };
 
-// 匹配预定义问答
+// 匹配预定义问答（评分系统 - 提高精准度）
 function matchFAQ(userMessage) {
     const lowerMessage = userMessage.toLowerCase();
     
+    let bestMatch = null;
+    let bestScore = 0;
+    let matchedKey = '';
+    
     for (const [key, faq] of Object.entries(faqDatabase)) {
+        let score = 0;
+        
         for (const keyword of faq.keywords) {
             if (lowerMessage.includes(keyword.toLowerCase())) {
-                console.log(`📚 匹配预定义问答: ${key}`);
-                return faq.answer;
+                score += 1;
             }
         }
+        
+        // 返回得分最高的 FAQ（只要得分 >= 1）
+        if (score >= 1 && score > bestScore) {
+            bestMatch = faq;
+            bestScore = score;
+            matchedKey = key;
+        }
+    }
+    
+    if (bestMatch) {
+        console.log(`📚 匹配预定义问答: ${matchedKey} (匹配${bestScore}个关键词)`);
+        return bestMatch.answer;
     }
     
     return null;  // 没有匹配

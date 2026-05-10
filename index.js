@@ -83,7 +83,7 @@ function buildReplyXml(toUser, fromUser, content) {
 }
 
 // ========== 调用 Qwen AI ==========
-async function callQwenAI(userMessage) {
+async function callQwenAI(userMessage, timeoutMs = 3500) {
     const startTime = Date.now();
     const cacheKey = userMessage.toLowerCase().trim();
     if (aiCache.has(cacheKey)) {
@@ -108,7 +108,7 @@ async function callQwenAI(userMessage) {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${QWEN_API_KEY}`
                 },
-                timeout: 4000
+                timeout: timeoutMs
             }
         );
         const aiReply = response.data.choices[0].message.content;
@@ -279,7 +279,16 @@ app.listen(PORT, async () => {
     if (!process.env.WECHAT_TOKEN) console.warn('⚠️  WECHAT_TOKEN 未设置！');
 
     // 自动预加热
-    const autoPrewarm = ['什么是ADR？','RevPAR怎么计算？','如何做好酒店收益管理？'];
+    const autoPrewarm = [
+        '什么是ADR？',
+        'RevPAR怎么计算？',
+        '如何做好酒店收益管理？',
+        '推荐北京高端酒店',
+        '酒店类型有哪些？',
+        '什么是OTA？',
+        '葡萄酒配什么菜？',
+        '你好！'
+    ];
     console.log(`\n🔥 预加热缓存（${autoPrewarm.length}个问题）...`);
     for (const q of autoPrewarm) {
         try {
