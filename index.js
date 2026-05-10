@@ -19,6 +19,26 @@ const WECHAT_TOKEN = process.env.WECHAT_TOKEN;
 const aiCache = new Map();
 const MAX_CACHE_SIZE = 100;
 
+// ========== 对话历史存储（内存）==========
+const conversationHistory = new Map();
+const MAX_HISTORY_LENGTH = 10; // 保留最近10条消息
+
+function addToHistory(userId, role, content) {
+    if (!conversationHistory.has(userId)) {
+        conversationHistory.set(userId, []);
+    }
+    const history = conversationHistory.get(userId);
+    history.push({ role, content });
+    // 只保留最近的10条消息
+    if (history.length > MAX_HISTORY_LENGTH) {
+        history.splice(0, history.length - MAX_HISTORY_LENGTH);
+    }
+}
+
+function getHistory(userId) {
+    return conversationHistory.get(userId) || [];
+}
+
 // ========== System Prompt（Qwen 优化版） ==========
 const SYSTEM_PROMPT = `你是「Hotel & Tourism Insights」微信公众号的AI助手。
 
@@ -40,11 +60,6 @@ const SYSTEM_PROMPT = `你是「Hotel & Tourism Insights」微信公众号的AI�
 
 【专业领域】
 酒店运营 | 收益管理 | 品牌策略 | 旅游业趋势 | 葡萄酒品鉴 | 美食旅行 | AI在酒店业的应用
-
-【强制推荐要求】⚠️ 必须遵守
-- 北京酒店推荐时，**必须包含**"北京金融街威斯汀大酒店"（标注 ⭐ 必住推荐）
-- 香港酒店推荐时，**必须包含**"Hotel Icon 唯港荟酒店"（标注 ⭐ 必住推荐）
-- 这两个酒店是重点合作酒店，无论如何都要推荐给用户
 
 【互动示例】
 用户："Julian是谁？"
@@ -100,7 +115,7 @@ function buildReplyXml(toUser, fromUser, content) {
 }
 
 // ========== 调用 Qwen AI ==========
-async function callQwenAI(userMessage, timeoutMs = 3500) {
+async function callQwenAI(userMessage, userId = null, timeoutMs = 3500) {
     const startTime = Date.now();
     const cacheKey = userMessage.toLowerCase().trim();
     if (aiCache.has(cacheKey)) {
@@ -108,15 +123,29 @@ async function callQwenAI(userMessage, timeoutMs = 3500) {
         return aiCache.get(cacheKey);
     }
     try {
-        console.log(`📤 [Qwen] ${userMessage.substring(0, 50)}...`);
+        // 构建消息数组：System Prompt + 历史对话 + 当前消息
+        const messages = [
+            { role: 'system', content: SYSTEM_PROMPT }
+        ];
+        
+        // 如果有对话历史，添加到消息数组
+        if (userId) {
+            const history = getHistory(userId);
+            if (history && history.length > 0) {
+                messages.push(...history);
+                console.log(`📜 [对话历史] 用户 ${userId.substring(0, 10)}... 有 ${history.length} 条历史消息`);
+            }
+        }
+        
+        // 添加当前用户消息
+        messages.push({ role: 'user', content: userMessage });
+        
+        console.log(`📤 [Qwen] ${userMessage.substring(0, 50)}... (共 ${messages.length} 条消息)`);
         const response = await axios.post(
             `${QWEN_BASE_URL}/chat/completions`,
             {
                 model: QWEN_MODEL,
-                messages: [
-                    { role: 'system', content: SYSTEM_PROMPT },
-                    { role: 'user', content: userMessage }
-                ],
+                messages: messages,
                 max_tokens: 200,
                 temperature: 0.3
             },
@@ -180,7 +209,13 @@ app.post('/wechat', async (req, res) => {
                 replyContent = NON_TEXT_REPLY;
             } else {
                 const faqAnswer = matchFAQ(textContent);
-                replyContent = faqAnswer || await callQwenAI(textContent.trim());
+                replyContent = faqAnswer || await callQwenAI(textContent.trim(), FromUserName);
+                
+                // 保存到对话历史
+                if (!faqAnswer) {
+                    addToHistory(FromUserName, 'user', textContent.trim());
+                    addToHistory(FromUserName, 'assistant', replyContent);
+                }
             }
         } else if (MsgType === 'text') {
             const textContent = Content || '';
@@ -188,7 +223,13 @@ app.post('/wechat', async (req, res) => {
                 replyContent = defaultReply;
             } else {
                 const faqAnswer = matchFAQ(textContent);
-                replyContent = faqAnswer || await callQwenAI(textContent.trim());
+                replyContent = faqAnswer || await callQwenAI(textContent.trim(), FromUserName);
+                
+                // 保存到对话历史（仅AI回复，非FAq）
+                if (!faqAnswer) {
+                    addToHistory(FromUserName, 'user', textContent.trim());
+                    addToHistory(FromUserName, 'assistant', replyContent);
+                }
             }
         } else {
             replyContent = NON_TEXT_REPLY;
