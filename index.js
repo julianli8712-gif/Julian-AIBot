@@ -325,8 +325,8 @@ app.post('/test', express.json(), async (req, res) => {
         const faqAnswer = matchFAQ(message);
         const reply = faqAnswer || await callQwenAI(message, userId);
         
-        // 保存到对话历史（仅AI回复，非FAQ）
-        if (!faqAnswer && userId) {
+        // 保存到对话历史（FAQ和AI回复都保存，保证多轮对话上下文）
+        if (userId) {
             addToHistory(userId, 'user', message);
             addToHistory(userId, 'assistant', reply);
         }
