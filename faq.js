@@ -75,7 +75,7 @@ ADR = Room Revenue ÷ Rooms Sold
     
     // 香港酒店推荐
     '香港酒店': {
-        keywords: ['香港酒店', '香港推荐酒店', '香港五星', '香港豪华酒店', '香港住宿', '香港有哪些酒店', '香港住哪里', '香港有什么好酒店', 'HK hotel', 'hong kong hotel', '推荐香港高端酒店', '推荐香港酒店', '香港高端酒店'],
+        keywords: ['香港酒店', '香港推荐酒店', '香港五星', '香港豪华酒店', '香港住宿', '香港有哪些酒店', '香港住哪里', '香港有什么好酒店', 'HK hotel', 'hong kong hotel', '推荐香港高端酒店', '推荐香港酒店', '香港高端酒店', '香港有什么酒店', '香港哪里住', '香港酒店推荐', '香港好酒店', '香港 酒店', '香港酒店推荐', '有什么香港酒店', '推荐香港的酒店', '香港有什么推荐的酒店'],
         answer: `🏨 香港高端酒店推荐
 
 ## ⭐ 必住推荐
@@ -180,7 +180,7 @@ ADR = Room Revenue ÷ Rooms Sold
     
     // 关于 Julian 和公众号
     '关于': {
-        keywords: ['julian', '朱利安', '是谁', '关于', '公众号', 'hotel', 'tourism', 'insights', '背景', '介绍', '创始', '创建'],
+        keywords: ['julian', '朱利安', '是谁', '关于你', '你是谁', '公众号是什么', 'hotel & tourism insights', '背景', '介绍', '创始', '创建', '你的身份', '你是'],
         answer: `👋 关于 Julian Li 和「Hotel & Tourism Insights」
 
 ## 👤 Julian Li
@@ -659,7 +659,7 @@ Occupancy Rate = (Rooms Sold ÷ Total Available Rooms) × 100%
     }
 };
 
-// 匹配预定义问答（评分系统 - 提高精准度）
+// 匹配预定义问答（简化版 - 只做精确匹配）
 function matchFAQ(userMessage) {
     const lowerMessage = userMessage.toLowerCase();
     
@@ -671,13 +671,17 @@ function matchFAQ(userMessage) {
         let score = 0;
         
         for (const keyword of faq.keywords) {
-            if (lowerMessage.includes(keyword.toLowerCase())) {
-                score += 1;
+            const lowerKeyword = keyword.toLowerCase();
+            
+            // 只做一种匹配：消息包含关键词（子串匹配）
+            if (lowerMessage.includes(lowerKeyword)) {
+                // 越长的关键词匹配，得分越高（更精准）
+                score += lowerKeyword.length;
             }
         }
         
-        // 返回得分最高的 FAQ（只要得分 >= 1）
-        if (score >= 1 && score > bestScore) {
+        // 返回得分最高的 FAQ（只要得分 >= 2）
+        if (score >= 2 && score > bestScore) {
             bestMatch = faq;
             bestScore = score;
             matchedKey = key;
@@ -685,7 +689,7 @@ function matchFAQ(userMessage) {
     }
     
     if (bestMatch) {
-        console.log(`📚 匹配预定义问答: ${matchedKey} (匹配${bestScore}个关键词)`);
+        console.log(`📚 匹配预定义问答: ${matchedKey} (得分${bestScore})`);
         return bestMatch.answer;
     }
     
